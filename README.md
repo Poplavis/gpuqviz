@@ -50,6 +50,8 @@ gpuqviz 把整条流水线搬到 GPU 上：**离屏 GLSL 渲染 → 显存直取
 - 🎬 **Scene 声明式 API**：JSON 场景文件 + CLI 一条命令出片，相机轨道动画
 - 🧊 **CPU 回退后端**：无 OpenGL 环境自动降级 numpy 软光栅（limited 样式）
 - 🔬 **qiskit 原生衔接**：直接吃 `QuantumCircuit` / `Statevector`，qiskit 仅为可选依赖
+- 🐼 **pyqpanda 兼容**：本源量子 `QProg` 经 ORIGINIR 转换 + 内置 numpy 态矢量模拟器接入，`pip install gpuqviz[pyqpanda]`
+- 🖱️ **交互式 3D 播放器**：导出单文件 HTML（约 0.7MB，离线可开）——播放/暂停、0.25×~4× 倍速、时间轴拖动、鼠标旋转缩放视角，下方实时显示各基态概率/振幅/相位与 Bloch 向量
 
 ## 安装
 
@@ -112,11 +114,43 @@ render(scene, out="out/scene.mp4")
 态矢量数据准备：`np.savez("states.npz", states=key_states)`，形状 `(K, 2**n)` complex，
 K 为关键帧数。场景可持久化为 JSON：[examples/scene.json](examples/scene.json)。
 
+### 交互式 3D 播放器（单文件 HTML）
+
+```python
+from gpuqviz import export_html
+
+export_html(circuit=qc, out="out/viewer.html", title="贝尔态演化")
+```
+
+双击 `viewer.html` 即可打开：3D 视口（鼠标拖拽旋转 / 滚轮缩放）、播放/暂停（空格）、
+0.25×~4× 倍速、时间轴拖动（←/→ 逐帧步进），底部实时显示当前量子状态——
+每个基态的概率条、振幅与相位，以及各 qubit 的 Bloch 向量。
+
+### pyqpanda（本源量子）电路
+
+```python
+pip install gpuqviz[pyqpanda]
+
+from pyqpanda import CPUQVM, QProg, H, CNOT
+from gpuqviz import render_bloch_video
+
+qm = CPUQVM(); qm.init_qvm()
+q = qm.qAlloc_many(2)
+prog = QProg(); prog << H(q[0]) << CNOT(q[0], q[1])
+
+render_bloch_video(circuit=prog, machine=qm, out="out/bell.mp4")   # 与 qiskit 同一套 API
+```
+
+所有入口（`render_bloch_video` / `render_heatmap_video` / `export_html`）均接受
+`machine=` 参数直接吃 pyqpanda `QProg`。注意：pyqpanda 的 ORIGINIR 转换必须使用
+创建 prog 的同一虚拟机实例，跨实例转换会在原生层崩溃（pyqpanda 已知行为）。
+
 ### CLI
 
 ```bash
 gpuqviz env                           # 环境能力自检（CUDA / OpenGL / NVENC / qiskit）
 gpuqviz render scene.json -o out.mp4  # JSON 场景出片
+gpuqviz export scene.json -o viewer.html   # 交互式 3D 播放器导出
 gpuqviz preview scene.json            # 实时预览（需 [preview] 扩展）
 ```
 
@@ -201,9 +235,11 @@ python scripts/gen_font_atlas.py   # 重新烘焙字体图集
 
 ## Roadmap
 
-- [ ] 交互式 3D 播放器：导出单文件 HTML（播放/暂停/倍速/时间轴 + 当前量子状态面板），设计见 [docs/INTERACTIVE_VIEWER.md](docs/INTERACTIVE_VIEWER.md)
+- [x] 交互式 3D 播放器：导出单文件 HTML（播放/暂停/倍速/时间轴 + 当前量子状态面板），设计见 [docs/INTERACTIVE_VIEWER.md](docs/INTERACTIVE_VIEWER.md)
+- [x] pyqpanda（本源量子）电路兼容
 - [ ] CUDA-GL interop 零拷贝读回（当前 pinned memory）
 - [ ] QASM 电路文件直接输入
+- [ ] 更多国内模拟器适配（QPilotMachine / QCloud 等）
 
 ## License
 

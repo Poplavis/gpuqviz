@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import numpy as np
 import typer
 
 from . import __version__
@@ -60,6 +61,39 @@ def preview(scene_file: Path = typer.Argument(..., exists=True, readable=True)) 
     from .preview import run_preview
 
     run_preview(str(scene_file))
+
+
+@app.command()
+def export(scene_file: Path = typer.Argument(None, exists=True, readable=True,
+                                            help="Scene JSON 文件"),
+           states_npz: Path = typer.Option(None, "--states", exists=True,
+                                           help="态矢量 .npz（与 Scene JSON 二选一）"),
+           out: Path = typer.Option("out/viewer.html", "--out", "-o"),
+           title: str = typer.Option("量子态演化", "--title"),
+           fps: float = typer.Option(60.0, "--fps"),
+           steps: int = typer.Option(120, "--steps"),
+           duration: float = typer.Option(None, "--duration",
+                                          help="秒；默认 steps/30"),
+           online: bool = typer.Option(False, "--online",
+                                       help="three.js 走 CDN（文件更小，需联网）")) -> None:
+    """导出交互式 3D 播放器 HTML（播放/暂停/倍速/时间轴 + 当前量子状态面板）。"""
+    from .export_html import export_html as _export
+
+    if scene_file is not None:
+        from .scene import Scene
+
+        scene = Scene.load_json(scene_file)
+        states = scene.tracks[0].load_states(base_dir=scene_file.parent)
+        path = _export(states=states, fps=scene.fps, duration=scene.duration,
+                       title=scene.title or title, out=out, embed_three=not online)
+    elif states_npz is not None:
+        states = np.load(states_npz)["states"]
+        path = _export(states=list(states), fps=fps, duration=duration or steps / 30.0,
+                       title=title, out=out, embed_three=not online)
+    else:
+        typer.echo("需要提供 Scene JSON 或 --states xxx.npz")
+        raise typer.Exit(1)
+    typer.echo(f"exported -> {path}")
 
 
 if __name__ == "__main__":

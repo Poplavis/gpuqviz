@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>__TITLE__</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#0b0e14; --panel:#12161f; --fg:#e6ebf5; --dim:#8a94a6; --accent:#4dc5f2; --accent2:#f5a641; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.5 "Segoe UI","Microsoft YaHei",sans-serif; }
+  #app { display:flex; flex-direction:column; height:100vh; }
+  header { padding:10px 18px 6px; font-size:18px; font-weight:600; }
+  #viewport { flex:1; position:relative; min-height:0; cursor:grab; }
+  #viewport:active { cursor:grabbing; }
+  #viewport canvas { display:block; }
+
+  /* 控制栏 */
+  #controls { display:flex; gap:12px; align-items:center; padding:10px 16px;
+              background:var(--panel); border-top:1px solid #232a38; }
+  #playBtn { width:44px; height:36px; border:1px solid #2c3547; border-radius:8px;
+             background:#1a2130; color:var(--fg); font-size:16px; cursor:pointer; }
+  #playBtn:hover { background:#232c40; }
+  #speed { background:#1a2130; color:var(--fg); border:1px solid #2c3547;
+           border-radius:8px; padding:7px 8px; }
+  #scrub { flex:1; accent-color: var(--accent); }
+  #timeLabel { min-width:110px; text-align:right; color:var(--dim);
+               font-variant-numeric: tabular-nums; }
+
+  /* 状态面板 */
+  #statePanel { display:flex; gap:24px; padding:12px 16px 16px;
+                background:var(--panel); border-top:1px solid #232a38; }
+  #statePanel h3 { margin:0 0 8px; font-size:13px; color:var(--dim); font-weight:600; }
+  #probList { min-width:320px; }
+  .probRow { display:grid; grid-template-columns: 72px 1fr 190px; gap:10px;
+             align-items:center; padding:2px 0; font-variant-numeric:tabular-nums; }
+  .probRow .label { color:var(--accent); font-family:Consolas,monospace; }
+  .probRow .barTrack { height:12px; background:#1a2130; border-radius:6px; overflow:hidden; }
+  .probRow .bar { height:100%; width:0%; background:linear-gradient(90deg,#2b7fb8,#4dc5f2);
+                  border-radius:6px; transition:width .05s linear; }
+  .probRow .nums { color:var(--dim); font-size:12.5px; }
+  #blochList { font-family:Consolas,monospace; color:var(--dim); font-size:12.5px;
+               white-space:pre; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>__TITLE__</header>
+  <div id="viewport"></div>
+
+  <div id="controls">
+    <button id="playBtn" title="播放/暂停（空格）">⏵</button>
+    <select id="speed" title="播放速度">
+      <option value="0.25">0.25×</option>
+      <option value="0.5">0.5×</option>
+      <option value="1" selected>1×</option>
+      <option value="2">2×</option>
+      <option value="4">4×</option>
+    </select>
+    <input id="scrub" type="range" min="0" max="1000" value="0">
+    <span id="timeLabel">0.00 / 0.00 s</span>
+  </div>
+
+  <div id="statePanel">
+    <div id="probList">
+      <h3>当前量子状态（计算基概率 / 振幅 / 相位）</h3>
+      <div id="probRows"></div>
+    </div>
+    <div id="blochPanel">
+      <h3>Bloch 向量</h3>
+      <div id="blochList"></div>
+    </div>
+  </div>
+</div>
+
+<script>__THREE_JS__</script>
+<script>__VIEWER_JS__</script>
+<script>
+window.GPUQVIZ_DATA = __PAYLOAD__;
+window.GPUQVIZ_VIEWER.Init("viewport");
+</script>
+</body>
+</html>

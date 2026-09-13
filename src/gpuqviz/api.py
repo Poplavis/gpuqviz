@@ -7,11 +7,23 @@ from pathlib import Path
 import numpy as np
 
 from .encode import create_encoder
-from .evolve import bloch_vectors, sample_circuit
+from .evolve import bloch_vectors
 from .interpolate import lerp_states, slerp_keys
 from .render import GLContext
 from .render.bloch import BlochRenderer
 from .render.heatmap import HeatmapRenderer, state_to_image
+from .render.text import TextRenderer
+from .scene import Scene as _Scene
+from .scene import _hex_to_rgba
+
+
+def _circuit_key_states(circuit, steps: int, machine=None) -> tuple[list[np.ndarray], int]:
+    """qiskit / pyqpanda 电路 → (关键帧态矢量列表, n_qubits)。"""
+    from .adapters import to_key_states
+    from .evolve import _infer_qubits
+
+    key_states = to_key_states(circuit, steps, machine=machine)
+    return key_states, _infer_qubits(key_states[0])
 from .render.text import TextRenderer
 from .scene import Scene as _Scene
 from .scene import _hex_to_rgba
@@ -48,7 +60,7 @@ def render_bloch_video(circuit=None, states=None, steps: int = 120, fps: float =
                        out: str | Path = "out/bloch.mp4", style: str = "dark",
                        codec: str = "h264", quality: float = 0.9,
                        trail: bool = False, seconds: float | None = None,
-                       backend: str = "auto") -> Path:
+                       backend: str = "auto", machine=None) -> Path:
     """qiskit 电路或态矢量序列 → 布洛赫球动画 MP4（零中间文件）。
 
     circuit 与 states 二选一。circuit 按 depth 均匀采样 steps 个关键帧，
@@ -62,8 +74,7 @@ def render_bloch_video(circuit=None, states=None, steps: int = 120, fps: float =
 
     # 1) 演化：电路采样或直接接受态矢量序列
     if circuit is not None:
-        key_states = sample_circuit(circuit, steps=steps)
-        n_qubits = circuit.num_qubits
+        key_states, n_qubits = _circuit_key_states(circuit, steps, machine=machine)
     else:
         key_states = [
             s.data if hasattr(s, "data") else np.asarray(s) for s in states
@@ -222,10 +233,11 @@ def render(scene: _Scene, out: str | Path = "out/scene.mp4", codec: str = "h264"
 def render_heatmap_video(states=None, circuit=None, steps: int = 120, fps: float = 60.0,
                          out: str | Path = "out/heatmap.mp4", basis: str = "probability",
                          colormap: str = "viridis", codec: str = "h264",
-                         quality: float = 0.9, seconds: float | None = None) -> Path:
+                         quality: float = 0.9, seconds: float | None = None,
+                         machine=None) -> Path:
     """态矢量序列（或电路）→ 概率/幅值/相位热图动画 MP4。"""
     if states is None and circuit is not None:
-        key_states = sample_circuit(circuit, steps=steps)
+        key_states, _ = _circuit_key_states(circuit, steps, machine=machine)
     elif states is not None:
         key_states = [np.asarray(getattr(s, "data", s)).reshape(-1) for s in states]
     else:

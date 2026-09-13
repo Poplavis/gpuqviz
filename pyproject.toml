@@ -25,6 +25,7 @@ gpu = [
 ]
 qiskit = ["qiskit>=1.0", "qiskit-aer>=0.14"]
 qiskit-gpu = ["qiskit>=1.0", "qiskit-aer-gpu>=0.14"]
+pyqpanda = ["pyqpanda>=3.8"]
 preview = ["moderngl-window>=2.4"]
 cpu-fallback = ["numba>=0.59"]
 dev = ["pytest>=8.0", "pytest-cov", "ruff", "mypy"]
