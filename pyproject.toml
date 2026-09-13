@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gpuqviz"
+version = "0.1.0"
+description = "GPU-accelerated quantum state evolution visualization and video rendering"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [{ name = "gpuqviz contributors" }]
+dependencies = [
+    "numpy>=1.24",
+    "moderngl>=5.10",
+    "av>=15.1",
+    "pydantic>=2.6",
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+gpu = [
+    "cupy-cuda12x>=13.0",
+    "pynvvideocodec>=2.0; python_version>='3.10'",  # 官方 wheel 仅支持 Py3.10+
+]
+qiskit = ["qiskit>=1.0", "qiskit-aer>=0.14"]
+qiskit-gpu = ["qiskit>=1.0", "qiskit-aer-gpu>=0.14"]
+preview = ["moderngl-window>=2.4"]
+cpu-fallback = ["numba>=0.59"]
+dev = ["pytest>=8.0", "pytest-cov", "ruff", "mypy"]
+
+[project.scripts]
+gpuqviz = "gpuqviz.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gpuqviz"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

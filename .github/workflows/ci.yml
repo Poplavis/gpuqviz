@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install (CPU-only extras; GPU extras need CUDA runners)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[qiskit,dev]
+      - name: Lint
+        run: |
+          ruff check src tests examples benchmarks scripts
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m pytest tests -q -k "not gpu_only"
+        # CI runner 无 NVIDIA GPU：GL 用例会因无法创建 standalone context 被
+        # importorskip 跳过；NVENC/NV12 用例自带 skipif。软光栅与数值用例全跑。
