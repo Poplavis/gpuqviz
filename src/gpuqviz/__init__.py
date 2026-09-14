@@ -2,9 +2,9 @@
 
 __version__ = "0.1.0"
 
-from .api import render, render_bloch_video, render_heatmap_video  # noqa: E401
+from .api import render, render_bloch_video, render_frame, render_heatmap_video  # noqa: E401
 from .env import report_env  # noqa: E401
 from .export_html import export_html  # noqa: E401
 
 __all__ = ["__version__", "report_env", "render_bloch_video", "render_heatmap_video",
-           "render", "export_html"]
+           "render", "render_frame", "export_html"]

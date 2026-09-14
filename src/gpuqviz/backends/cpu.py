@@ -112,8 +112,11 @@ class SoftRasterBloch:
 
 def render_bloch_video_cpu(states_bloch, fps, out, theme, width, height,
                            n_qubits, codec="h264", quality=0.9,
-                           trail=False) -> "object":
-    """CPU 软光栅出片：frames_bloch (F, n, 3) → MP4。接口与 GL 路径对齐。"""
+                           trail=False, cols=None) -> "object":
+    """CPU 软光栅出片：frames_bloch (F, n, 3) → MP4。接口与 GL 路径对齐。
+
+    cols：一行最多几个球（None=单行）。多行布局以正交投影排成网格。
+    """
     import time
     from pathlib import Path
 
@@ -121,7 +124,14 @@ def render_bloch_video_cpu(states_bloch, fps, out, theme, width, height,
 
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    spacing_px = max(width // (n_qubits + 1), 240)
+    if cols is None:
+        cols = n_qubits
+    cols = max(1, min(cols, n_qubits))
+    rows = int(np.ceil(n_qubits / cols))
+    # 网格单元尺寸：取列/行方向的较小者，保证球不重叠
+    cell_w = width / cols
+    cell_h = height / rows
+    spacing_px = int(min(cell_w, cell_h) * 0.78)
     radius_px = int(spacing_px * 0.35)
     total_frames = states_bloch.shape[0]
 
@@ -134,8 +144,10 @@ def render_bloch_video_cpu(states_bloch, fps, out, theme, width, height,
             ctx.clear(theme["background"])
             vecs = states_bloch[t]
             for i in range(n_qubits):
-                cx = width / 2 + (i - (n_qubits - 1) / 2) * spacing_px
-                cy = height / 2
+                r = i // cols
+                c = i % cols
+                cx = (c + 0.5) * cell_w
+                cy = (r + 0.5) * cell_h
                 if trail:
                     trails[i].append(np.asarray(vecs[i], float))
                     for k in range(1, len(trails[i])):

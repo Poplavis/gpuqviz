@@ -50,27 +50,113 @@ STYLES: dict[str, dict] = {
         "trail_color": (0.90, 0.55, 0.10),
         "trail_alpha": 0.55,
     },
+    # 论文黑白：纯白背景、黑轴、灰球壳、矢量用深灰、轨迹深灰虚线
+    "bw": {
+        "background": (1.0, 1.0, 1.0, 1.0),
+        "axis_color": (0.0, 0.0, 0.0),
+        "ring_color": (0.35, 0.35, 0.35),
+        "sphere_color": (0.75, 0.75, 0.78),
+        "sphere_alpha": 0.12,
+        "vector_color": (0.05, 0.05, 0.05),
+        "trail_color": (0.40, 0.40, 0.40),
+        "trail_alpha": 0.50,
+    },
+    # 海报/演示：高对比度深底 + 暖色矢量
+    "poster": {
+        "background": (0.02, 0.02, 0.04, 1.0),
+        "axis_color": (0.65, 0.68, 0.75),
+        "ring_color": (0.42, 0.46, 0.55),
+        "sphere_color": (0.40, 0.55, 0.90),
+        "sphere_alpha": 0.18,
+        "vector_color": (1.0, 0.78, 0.25),
+        "trail_color": (0.95, 0.35, 0.45),
+        "trail_alpha": 0.65,
+    },
 }
+
+
+def _resolve_style(style, overrides: dict | None = None) -> dict:
+    """把 style（str 或 dict）解析为完整 theme dict；overrides 按 merge 语义覆盖。"""
+    if isinstance(style, str):
+        if style not in STYLES:
+            raise ValueError(f"unknown style {style!r}; choices: {list(STYLES)}")
+        theme = dict(STYLES[style])
+    elif isinstance(style, dict):
+        # dict 输入：以 dark 为底 merge（保证必填键齐全）
+        theme = dict(STYLES["dark"])
+        theme.update(style)
+    else:
+        raise TypeError("style must be a str name or a dict of overrides")
+    if overrides:
+        theme.update(overrides)
+    return theme
+
+
+def _figsize_to_pixels(figsize: tuple[float, float] | None,
+                       width: int, height: int) -> tuple[int, int]:
+    """figsize（英寸，dpi=100）→ 像素；与 width/height 互斥。"""
+    if figsize is None:
+        return width, height
+    w_in, h_in = figsize
+    return int(round(w_in * 100)), int(round(h_in * 100))
 
 _SPHERE_SPACING = 3.0
 _SPHERE_RADIUS = 1.2
 
 
+def _grid_layout(n_qubits: int, cols: int | None,
+                 width: int, height: int) -> tuple[list[tuple[float, float, float]], float, float, float]:
+    """多球布局：返回 (centers_world, spacing, radius, cam_dist)。
+
+    centers 为世界坐标 (x, y, z)；cols 限制一行最多几个球，超出换行。
+    """
+    if cols is None:
+        cols = n_qubits
+    cols = max(1, min(cols, n_qubits))
+    rows = int(np.ceil(n_qubits / cols))
+    spacing = _SPHERE_SPACING
+    radius = _SPHERE_RADIUS
+    # 多行时行距加大（z 方向）
+    row_gap = spacing * 1.2
+    centers = []
+    for i in range(n_qubits):
+        r = i // cols
+        c = i % cols
+        x = (c - (min(cols, n_qubits - r * cols) - 1) / 2) * spacing
+        z = (r - (rows - 1) / 2) * row_gap
+        centers.append((x, 0.0, z))
+    # 相机距离取行距与列距的包络
+    cam_dist = max(5.0, spacing * cols * 1.35, row_gap * rows * 1.6)
+    return centers, spacing, radius, cam_dist
+
+
 def render_bloch_video(circuit=None, states=None, steps: int = 120, fps: float = 60.0,
-                       out: str | Path = "out/bloch.mp4", style: str = "dark",
+                       out: str | Path = "out/bloch.mp4", style="dark",
                        codec: str = "h264", quality: float = 0.9,
                        trail: bool = False, seconds: float | None = None,
-                       backend: str = "auto", machine=None) -> Path:
+                       backend: str = "auto", machine=None,
+                       cols: int | None = None,
+                       figsize: tuple[float, float] | None = None,
+                       style_overrides: dict | None = None) -> Path:
     """qiskit 电路或态矢量序列 → 布洛赫球动画 MP4（零中间文件）。
 
     circuit 与 states 二选一。circuit 按 depth 均匀采样 steps 个关键帧，
     输出帧率 fps 由关键帧间 slerp 插值实现；seconds 指定输出时长（默认
     steps / 30 ≈ 每关键帧 33ms）。backend: "auto"|"gl"|"cpu"。
+
+    布局参数（S7）：
+    - cols：一行最多几个球（None=单行；语义对齐 recorder 的 num_cols）
+    - figsize：(宽英寸, 高英寸)，dpi=100 换算像素；与默认 1920×1080 互斥
+    - style：str 预设名（dark/light/bw/poster）或 dict；style_overrides
+      按 merge 语义覆盖任意键（如 ``{"vector_color": (1,0,0)}``）
     """
     if (circuit is None) == (states is None):
         raise ValueError("exactly one of `circuit` or `states` must be provided")
+    if figsize is not None and (figsize[0] <= 0 or figsize[1] <= 0):
+        raise ValueError(f"figsize must be positive inches, got {figsize}")
 
-    theme = dict(STYLES[style])
+    theme = _resolve_style(style, style_overrides)
+    W, H = _figsize_to_pixels(figsize, 1920, 1080)
 
     # 1) 演化：电路采样或直接接受态矢量序列
     if circuit is not None:
@@ -99,19 +185,17 @@ def render_bloch_video(circuit=None, states=None, steps: int = 120, fps: float =
         from .backends.cpu import render_bloch_video_cpu
 
         return render_bloch_video_cpu(frames_bloch, fps, out, theme,
-                                      1920, 1080, n_qubits, codec=codec,
-                                      quality=quality, trail=trail)
+                                      W, H, n_qubits, codec=codec,
+                                      quality=quality, trail=trail, cols=cols)
 
-    # 4) 相机与球布局：多 qubit 排成一行，相机距离自适应
-    spacing, radius = _SPHERE_SPACING, _SPHERE_RADIUS
-    centers = [np.array([(i - (n_qubits - 1) / 2) * spacing, 0.0, 0.0]) for i in range(n_qubits)]
-    cam_dist = max(4.0, spacing * n_qubits * 1.35)
+    # 4) 相机与球布局：多 qubit 按 cols 排成网格，相机距离自适应
+    centers, spacing, radius, cam_dist = _grid_layout(n_qubits, cols, W, H)
     eye = np.array([cam_dist * 0.35, -cam_dist, cam_dist * 0.55])
 
     def draw(gl: GLContext, t: int) -> None:
         gl.ctx.clear(*theme["background"])
         renderer = gl._bloch
-        renderer.set_camera(eye)
+        renderer.set_camera(eye, aspect=W / H)
         vecs = frames_bloch[t]
         for i in range(n_qubits):
             v = vecs[i]
@@ -122,11 +206,11 @@ def render_bloch_video(circuit=None, states=None, steps: int = 120, fps: float =
             renderer.draw_vector(v, centers[i], radius)
             renderer.draw_static(centers[i], radius)  # 壳最后画，盖住尾迹出球部分
 
-    with GLContext(1920, 1080, fps=fps) as gl:
+    with GLContext(W, H, fps=fps) as gl:
         gl._bloch = BlochRenderer(gl, theme)
         trails: list[list] = [[] for _ in range(n_qubits)]  # 每个 qubit 独立轨迹
         try:
-            with create_encoder(1920, 1080, fps, out, codec=codec, quality=quality) as enc:
+            with create_encoder(W, H, fps, out, codec=codec, quality=quality) as enc:
                 for t, frame in gl.frame_iterator(total_frames, draw):
                     enc.write(frame)
         finally:
@@ -269,3 +353,173 @@ def render_heatmap_video(states=None, circuit=None, steps: int = 120, fps: float
         finally:
             gl._heat.release()
     return Path(out)
+
+
+def render_frame(circuit=None, states=None, scene=None, t: float = 0.5,
+                 out: str | Path = "out/frame.png", scale: int = 2,
+                 style="dark", cols: int | None = None,
+                 figsize: tuple[float, float] | None = None,
+                 style_overrides: dict | None = None,
+                 machine=None,
+                 states_dir: str | Path | None = None) -> Path:
+    """渲染归一化时刻 t∈[0,1] 的单帧 → PNG（出版级静态图，零中间文件）。
+
+    circuit/states/scene 三选一：scene 时按其布局渲染（含热图/标题），
+    circuit/states 渲染布洛赫球网格。scale 为超采样倍数（2 或 4）抗锯齿，
+    内部以 scale×分辨率渲染后 PIL LANCZOS 缩回目标尺寸。
+    等效 300dpi 输出：像素数 = 英寸 × 300（用 figsize 指定英寸即可）。
+    """
+    if scale < 1:
+        raise ValueError("scale must be >= 1")
+    if not (0.0 <= t <= 1.0):
+        raise ValueError(f"t must be in [0, 1], got {t}")
+
+    from .backends import detect_backend
+    from PIL import Image
+
+    theme = _resolve_style(style, style_overrides)
+
+    # ---- 确定渲染内容与尺寸 ----
+    if scene is not None:
+        base_dir = Path(states_dir) if states_dir else Path(out).parent
+        scene.validate_states(base_dir=base_dir)
+        W, H = scene.width, scene.height
+        render_draw = _build_scene_draw(scene, theme, base_dir, t)
+    else:
+        if (circuit is None) == (states is None):
+            raise ValueError("provide exactly one of circuit/states/scene")
+        if circuit is not None:
+            key_states, n_qubits = _circuit_key_states(circuit, steps=120, machine=machine)
+        else:
+            key_states = [np.asarray(getattr(s, "data", s)).reshape(-1) for s in states]
+            n_qubits = int(round(np.log2(key_states[0].shape[0])))
+        W, H = _figsize_to_pixels(figsize, 1920, 1080)
+        out_frames = 120
+        frames_bloch = slerp_keys(bloch_vectors(key_states, n_qubits=n_qubits), out_frames)
+        if hasattr(frames_bloch, "get"):
+            frames_bloch = frames_bloch.get()
+        idx = int(round(t * (out_frames - 1)))
+        centers, spacing, radius, cam_dist = _grid_layout(n_qubits, cols, W, H)
+        eye = np.array([cam_dist * 0.35, -cam_dist, cam_dist * 0.55])
+
+        def render_draw(gl, _t):
+            gl.ctx.clear(*theme["background"])
+            gl._bloch.set_camera(eye, aspect=W / H)
+            vecs = frames_bloch[idx]
+            for i in range(n_qubits):
+                gl._bloch.draw_vector(vecs[i], centers[i], radius)
+                gl._bloch.draw_static(centers[i], radius)
+
+    # ---- 超采样渲染 + PIL 缩回 + PNG 编码 ----
+    sw, sh = W * scale, H * scale
+    backend = detect_backend()
+    if backend == "cpu":
+        # CPU 软光栅：直接以目标尺寸渲染（scale 抗锯齿由 PIL 下采样实现）
+        from .backends.cpu import SoftRasterContext, SoftRasterBloch
+        with SoftRasterContext(sw, sh) as soft:
+            # 重写 draw 以软光栅坐标渲染（CPU 路径不支持 scene 复杂布局，
+            # 仅 BlochTrack；scene 含热图时回退到 GL 探测路径）
+            if scene is not None:
+                raise RuntimeError("render_frame CPU 路径暂不支持 scene，请装 OpenGL")
+            renderer = SoftRasterBloch(soft, theme)
+            cell_w = sw / cols if cols else sw / n_qubits
+            cell_h = sh
+            rows = 1
+            if cols and cols < n_qubits:
+                rows = int(np.ceil(n_qubits / cols))
+                cell_w = sw / cols
+                cell_h = sh / rows
+            r_px = int(min(cell_w, cell_h) * 0.35 * 0.78)
+            vecs = frames_bloch[idx]
+            soft.clear(theme["background"])
+            for i in range(n_qubits):
+                r = i // (cols or n_qubits)
+                c = i % (cols or n_qubits)
+                cx = (c + 0.5) * cell_w
+                cy = (r + 0.5) * cell_h
+                renderer.draw(vecs[i], (cx, cy), r_px)
+            frame = soft.frame
+        pil = Image.fromarray(frame, mode="RGBA")
+    else:
+        with GLContext(sw, sh) as gl:
+            gl._bloch = BlochRenderer(gl, theme)
+            if scene is not None:
+                gl._heat = HeatmapRenderer(gl)
+                gl._text = TextRenderer(gl)
+            try:
+                render_draw(gl, 0)
+                frame = gl.read_frame()
+            finally:
+                gl._bloch.release()
+                if scene is not None:
+                    gl._heat.release()
+                    gl._text.release()
+        if hasattr(frame, "get"):
+            frame = frame.get()
+        pil = Image.fromarray(np.asarray(frame), mode="RGBA")
+
+    if scale > 1:
+        pil = pil.resize((W, H), Image.LANCZOS)
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    # PNG 不支持 RGBA 的某些查看器兼容性：转 RGB（丢弃全不透明 alpha）
+    pil.convert("RGB").save(str(out), format="PNG", optimize=True)
+    return Path(out)
+
+
+def _build_scene_draw(scene, theme, base_dir, t01_target):
+    """构造 scene 单帧 draw 闭包（render_frame 用，渲染 t01 对应帧）。"""
+    loaded = []
+    for track, region in scene.regions():
+        states = track.load_states(base_dir=base_dir)
+        n = int(round(np.log2(states.shape[1])))
+        out_frames = int(round(scene.duration * scene.fps))
+        if track.kind == "bloch":
+            frames = slerp_keys(bloch_vectors(list(states), n_qubits=n), out_frames)
+            if hasattr(frames, "get"):
+                frames = frames.get()
+        else:
+            frames = lerp_states(states, out_frames)
+        loaded.append((track, track.kind, frames, region))
+    W, H = scene.width, scene.height
+    total_frames = int(round(scene.duration * scene.fps))
+    idx = int(round(t01_target * (total_frames - 1)))
+
+    def region_rect(region):
+        if region == "top":
+            return (0, H // 2, W, H - H // 2)
+        if region == "bottom":
+            return (0, 0, W, H // 2)
+        return (0, 0, W, H)
+
+    def draw(gl, _t):
+        gl.ctx.clear(*theme["background"])
+        if scene.title:
+            gl._text.draw(scene.title, (40, 60), 44, (0.92, 0.94, 0.97, 1.0))
+        for track, kind, frames, region in loaded:
+            vp = region_rect(region)
+            if kind == "bloch":
+                gl.ctx.viewport = vp
+                states_np = frames[idx]
+                qi_list = track.qubit_indices or list(range(states_np.shape[0]))
+                spacing, radius = 3.0, 1.2
+                centers = [np.array([(j - (len(qi_list) - 1) / 2) * spacing, 0.0, 0.0])
+                           for j in range(len(qi_list))]
+                cam_dist = max(5.0, spacing * len(qi_list) * 1.35)
+                if scene.camera is not None:
+                    eye = scene.camera.eye_at(t01_target, cam_dist)
+                else:
+                    eye = np.array([cam_dist * 0.35, -cam_dist, cam_dist * 0.55])
+                gl._bloch.set_camera(eye, aspect=vp[2] / vp[3])
+                for j, qi in enumerate(qi_list):
+                    gl._bloch.draw_vector(states_np[qi], centers[j], radius)
+                    gl._bloch.draw_static(centers[j], radius)
+                gl.ctx.viewport = (0, 0, W, H)
+            else:
+                img_shape = state_to_image(frames[idx], basis=track.basis).shape
+                ih, iw = img_shape
+                x0, y0, rw, rh = vp
+                cell = min((rw - 260) / iw, (rh - 100) / ih)
+                rect = (x0 + (rw - 160 - cell * iw) / 2, y0 + (rh - cell * ih) / 2,
+                        cell * iw, cell * ih)
+                gl._heat.draw(frames[idx], rect, basis=track.basis)
+    return draw

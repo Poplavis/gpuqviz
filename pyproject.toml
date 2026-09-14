@@ -16,6 +16,7 @@ dependencies = [
     "av>=15.1",
     "pydantic>=2.6",
     "typer>=0.12",
+    "Pillow>=10.0",  # 静态帧 PNG 编码（render_frame）
 ]
 
 [project.optional-dependencies]
