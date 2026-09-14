@@ -239,6 +239,7 @@ python scripts/gen_font_atlas.py   # 重新烘焙字体图集
 - [x] pyqpanda（本源量子）电路兼容
 - [x] 高层门/复杂电路兼容：U/U1/U2/U3、受控参数门（CRX/CRY/CRZ/CH/CU）、任意控制位 MCX/MCP/Toffoli、ISWAP，复合门递归展开，`transpile` 兜底未知指令；14 电路对 qiskit 保真度 ≥ 1-1e-9（见 `tests/test_gates_matrix.py`、`examples/grover_mcx.py`）
 - [x] 布局/样式系统 + 出版级静态图：`cols`/`figsize` 参数、`bw`（论文黑白）/`poster` 预设、`style_overrides` 覆盖；`render_frame()` 单帧 PNG 导出（scale 超采样抗锯齿，等效 300dpi）
+- [x] CPU/无 GL 环境可移植性：numba 加速软光栅（CPU bell 116s→6s，19×）、完整 `HeatmapTrack`/`PhaseDisc`/PIL 文字 CPU 路径、`GPUQVIZ_BACKEND` 环境变量、GL 3.3→3.2 降级链、CI 无 GPU 门禁
 - [ ] CUDA-GL interop 零拷贝读回（当前 pinned memory）
 - [ ] QASM 电路文件直接输入
 - [ ] 更多国内模拟器适配（QPilotMachine / QCloud 等）

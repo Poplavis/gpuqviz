@@ -177,10 +177,10 @@ def render_bloch_video(circuit=None, states=None, steps: int = 120, fps: float =
     total_frames = frames_bloch.shape[0]
 
     # 3) 后端选择：GL 不可用时走 numpy 软光栅（limited 样式）
-    from .backends import detect_backend
+    from .backends import resolve_backend
 
     if backend == "auto":
-        backend = detect_backend()
+        backend = resolve_backend("auto")
     if backend == "cpu":
         from .backends.cpu import render_bloch_video_cpu
 
@@ -318,14 +318,29 @@ def render_heatmap_video(states=None, circuit=None, steps: int = 120, fps: float
                          out: str | Path = "out/heatmap.mp4", basis: str = "probability",
                          colormap: str = "viridis", codec: str = "h264",
                          quality: float = 0.9, seconds: float | None = None,
-                         machine=None) -> Path:
-    """态矢量序列（或电路）→ 概率/幅值/相位热图动画 MP4。"""
+                         machine=None, backend: str = "auto") -> Path:
+    """态矢量序列（或电路）→ 概率/幅值/相位热图动画 MP4。
+
+    S8：backend="cpu" 时走纯 numpy 软光栅热图（LUT 伪彩），无需 OpenGL。
+    """
     if states is None and circuit is not None:
         key_states, _ = _circuit_key_states(circuit, steps, machine=machine)
     elif states is not None:
         key_states = [np.asarray(getattr(s, "data", s)).reshape(-1) for s in states]
     else:
         raise ValueError("provide either `states` or `circuit`")
+
+    from .backends import resolve_backend
+
+    actual = resolve_backend(backend)
+    if actual == "cpu":
+        from .backends.cpu import render_heatmap_video_cpu
+
+        return render_heatmap_video_cpu(
+            key_states, fps=fps, out=out, width=1920, height=1080,
+            basis=basis, colormap=colormap, codec=codec, quality=quality,
+            seconds=seconds, steps=steps,
+        )
 
     frames = lerp_states(key_states, int(round((seconds or steps / 30) * fps)))
     if hasattr(frames, "get"):
@@ -374,7 +389,7 @@ def render_frame(circuit=None, states=None, scene=None, t: float = 0.5,
     if not (0.0 <= t <= 1.0):
         raise ValueError(f"t must be in [0, 1], got {t}")
 
-    from .backends import detect_backend
+    from .backends import resolve_backend
     from PIL import Image
 
     theme = _resolve_style(style, style_overrides)
@@ -412,33 +427,86 @@ def render_frame(circuit=None, states=None, scene=None, t: float = 0.5,
 
     # ---- 超采样渲染 + PIL 缩回 + PNG 编码 ----
     sw, sh = W * scale, H * scale
-    backend = detect_backend()
+    backend = resolve_backend("auto")
     if backend == "cpu":
         # CPU 软光栅：直接以目标尺寸渲染（scale 抗锯齿由 PIL 下采样实现）
-        from .backends.cpu import SoftRasterContext, SoftRasterBloch
+        from .backends.cpu import SoftRasterContext, SoftRasterBloch, SoftRasterHeatmap
         with SoftRasterContext(sw, sh) as soft:
-            # 重写 draw 以软光栅坐标渲染（CPU 路径不支持 scene 复杂布局，
-            # 仅 BlochTrack；scene 含热图时回退到 GL 探测路径）
             if scene is not None:
-                raise RuntimeError("render_frame CPU 路径暂不支持 scene，请装 OpenGL")
-            renderer = SoftRasterBloch(soft, theme)
-            cell_w = sw / cols if cols else sw / n_qubits
-            cell_h = sh
-            rows = 1
-            if cols and cols < n_qubits:
-                rows = int(np.ceil(n_qubits / cols))
-                cell_w = sw / cols
-                cell_h = sh / rows
-            r_px = int(min(cell_w, cell_h) * 0.35 * 0.78)
-            vecs = frames_bloch[idx]
-            soft.clear(theme["background"])
-            for i in range(n_qubits):
-                r = i // (cols or n_qubits)
-                c = i % (cols or n_qubits)
-                cx = (c + 0.5) * cell_w
-                cy = (r + 0.5) * cell_h
-                renderer.draw(vecs[i], (cx, cy), r_px)
-            frame = soft.frame
+                # S8: CPU 路径支持 scene（bloch + heatmap + title）
+                soft.clear(theme["background"])
+                if scene.title:
+                    soft.draw_text(scene.title, (40 * scale, 60 * scale),
+                                   44 * scale, (0.92, 0.94, 0.97, 1.0))
+                heat_renderer = None
+                total_frames_s = int(round(scene.duration * scene.fps))
+                idx_s = int(round(t * (total_frames_s - 1)))
+                for track, region in scene.regions():
+                    s_base = Path(states_dir) if states_dir else Path(out).parent
+                    track_states = track.load_states(base_dir=s_base)
+                    n_s = int(round(np.log2(track_states.shape[1])))
+                    out_f = int(round(scene.duration * scene.fps))
+                    if track.kind == "bloch":
+                        fb = slerp_keys(bloch_vectors(list(track_states), n_qubits=n_s), out_f)
+                        if hasattr(fb, "get"):
+                            fb = fb.get()
+                        qi_list = track.qubit_indices or list(range(fb.shape[1]))
+                        # 区域映射到 sw×sh
+                        if region == "top":
+                            ry0, ry1 = sh // 2, sh
+                        elif region == "bottom":
+                            ry0, ry1 = 0, sh // 2
+                        else:
+                            ry0, ry1 = 0, sh
+                        r_h = ry1 - ry0
+                        sp_px = 3.0
+                        r_px_s = int(min(sw / len(qi_list), r_h) * 0.78 * 0.35)
+                        for j, qi in enumerate(qi_list):
+                            cx = (j + 0.5) * sw / len(qi_list)
+                            cy = (ry0 + ry1) / 2
+                            bloch_r = SoftRasterBloch(soft, theme)
+                            bloch_r.draw(fb[idx_s, qi], (cx, cy), r_px_s)
+                    else:
+                        if heat_renderer is None:
+                            heat_renderer = SoftRasterHeatmap(soft, colormap="viridis")
+                        from .render.heatmap import state_to_image
+                        fh = lerp_states(track_states, out_f)
+                        if hasattr(fh, "get"):
+                            fh = fh.get()
+                        img = state_to_image(fh[idx_s], basis=track.basis)
+                        if hasattr(img, "get"):
+                            img = img.get()
+                        ih, iw = img.shape
+                        if region == "top":
+                            ry0 = sh // 2
+                        elif region == "bottom":
+                            ry0 = 0
+                        else:
+                            ry0 = 0
+                        cell = min((sw - 260 * scale) / iw, (sh // 2 - 100 * scale) / ih)
+                        rw, rh = cell * iw, cell * ih
+                        rect = ((sw - 160 * scale - rw) / 2, ry0 + (sh // 2 - rh) / 2 + 30 * scale, rw, rh)
+                        heat_renderer.draw(fh[idx_s], rect, basis=track.basis)
+                frame = soft.frame
+            else:
+                renderer = SoftRasterBloch(soft, theme)
+                cell_w = sw / cols if cols else sw / n_qubits
+                cell_h = sh
+                rows = 1
+                if cols and cols < n_qubits:
+                    rows = int(np.ceil(n_qubits / cols))
+                    cell_w = sw / cols
+                    cell_h = sh / rows
+                r_px = int(min(cell_w, cell_h) * 0.35 * 0.78)
+                vecs = frames_bloch[idx]
+                soft.clear(theme["background"])
+                for i in range(n_qubits):
+                    r = i // (cols or n_qubits)
+                    c = i % (cols or n_qubits)
+                    cx = (c + 0.5) * cell_w
+                    cy = (r + 0.5) * cell_h
+                    renderer.draw(vecs[i], (cx, cy), r_px)
+                frame = soft.frame
         pil = Image.fromarray(frame, mode="RGBA")
     else:
         with GLContext(sw, sh) as gl:

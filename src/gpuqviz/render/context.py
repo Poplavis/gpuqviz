@@ -1,16 +1,59 @@
-"""GPU 离屏渲染上下文：moderngl standalone context + 离屏 FBO + 帧读回。"""
+"""GPU 离屏渲染上下文：moderngl standalone context + 离屏 FBO + 帧读回。
+
+S8：GL 降级链（require=3.3 → 3.2 → CPU），GPUQVIZ_BACKEND=gl 时才尝试 GL。
+create_standalone_context 失败时抛 GLUnavailableError，由调用方回退 CPU。
+"""
 
 from __future__ import annotations
 
+import logging
 from typing import Callable, Iterator
 
-import moderngl
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 try:  # cupy 可选：读回帧以 device ndarray 形式交付
     import cupy as cp
 except ImportError:  # pragma: no cover - 无 N 卡环境
     cp = None
+
+try:
+    import moderngl
+except ImportError:  # pragma: no cover
+    moderngl = None
+
+
+class GLUnavailableError(RuntimeError):
+    """GL 上下文无法创建（无驱动/无 EGL/版本不满足）。"""
+
+
+def _try_create_context(gl_version: int = 330) -> "moderngl.Context":
+    """尝试创建指定 GL 版本的 standalone context，失败抛异常。"""
+    if moderngl is None:
+        raise GLUnavailableError("moderngl not installed")
+    # moderngl.create_standalone_context(require=gl_version) 在版本不满足时抛异常
+    ctx = moderngl.create_standalone_context(require=gl_version)
+    return ctx
+
+
+def create_gl_context(width: int, height: int, fps: float = 60.0,
+                      device: int = 0) -> "GLContext":
+    """带降级链的 GL 上下文创建：3.3 → 3.2 → 抛 GLUnavailableError。
+
+    每次降级打印一行决策日志，便于诊断环境问题。
+    """
+    for ver, label in [(330, "3.3"), (320, "3.2")]:
+        try:
+            ctx = _try_create_context(ver)
+            if ver != 330:
+                logger.info("GL degraded to %s (3.3 unavailable)", label)
+            return GLContext(width, height, fps=fps, device=device, _ctx=ctx)
+        except Exception as e:  # noqa: BLE001
+            logger.info("GL %s failed: %s", label, e)
+    raise GLUnavailableError(
+        "no usable GL context (tried 3.3 → 3.2); set GPUQVIZ_BACKEND=cpu"
+    )
 
 
 class GLContext:
@@ -24,14 +67,18 @@ class GLContext:
                 ...  # frame 为 (H, W, 4) uint8，交编码器
     """
 
-    def __init__(self, width: int, height: int, fps: float = 60.0, device: int = 0):
+    def __init__(self, width: int, height: int, fps: float = 60.0, device: int = 0,
+                 _ctx=None):
         self.width = int(width)
         self.height = int(height)
         self.fps = float(fps)
         self.device = int(device)
 
-        # create_standalone_context 在 Windows(WGL)/Linux(EGL) 均可无窗口创建
-        self.ctx: moderngl.Context = moderngl.create_standalone_context()
+        # _ctx 由 create_gl_context 预创建（带降级链）；直接构造时回退到默认
+        if _ctx is not None:
+            self.ctx = _ctx
+        else:
+            self.ctx = moderngl.create_standalone_context()
         self.fbo = self.ctx.framebuffer(
             color_attachments=self.ctx.texture((self.width, self.height), 4),
             depth_attachment=self.ctx.depth_renderbuffer((self.width, self.height)),
@@ -89,5 +136,5 @@ class GLContext:
     def clear(self, color=(0.0, 0.0, 0.0, 1.0)) -> None:
         self.ctx.clear(*color)
 
-    def program(self, vertex_source: str, fragment_source: str) -> moderngl.Program:
+    def program(self, vertex_source: str, fragment_source: str) -> "moderngl.Program":
         return self.ctx.program(vertex_shader=vertex_source, fragment_shader=fragment_source)

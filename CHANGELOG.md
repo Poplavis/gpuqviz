@@ -1,5 +1,37 @@
 # Changelog
 
+## 未发布（S8 CPU/无 GL 环境可移植性 + NVENC 修复）
+
+- NVENC 修复：`NvencEncoder` 重写适配 PyNvVideoCodec 2.x API（`FFmpegMuxer`
+  完整参数构造 + `MuxVideoPacket` + `Finalize` + `SetUniformPtsIncrement`），
+  CAIMemoryView 显存直喂失败（error 8）改用 `usecpuinputbuffer=True` + cupy
+  GPU NV12 kernel + `asnumpy` 路径；`nvenc_available()` 探测改隔离子进程避免
+  原生崩溃杀宿主。性能：cupy GPU NV12（787 fps）+ NVENC 硬件编码（236 fps）
+  端到端 141 fps @1080p，比 libx264 快 3.8×（此前 numpy CPU NV12 路径为瓶颈）
+- CPU 软光栅重写（`backends/cpu.py`）：包围盒光栅（不再每帧全屏距离场）+
+  numba `@njit(parallel=True, cache=True)` 加速圆盘/圆环/椭圆环/线段/热图LUT/
+  相位色盘热路径，numba 缺失时静默回退 numpy。CPU bell 3s@30fps 720p 从
+  116.3s 降至 ~6s（19× 加速），远超 ≤20s 目标
+- CPU 后端补齐：新增 `SoftRasterHeatmap`（LUT 伪彩，与 GL 路径数值一致）、
+  `draw_text`（PIL ImageDraw + ImageFont，支持系统字体回退）、`draw_phase_disc`
+  （HSV→RGB 相位色盘 CPU 版）；`render_heatmap_video` 支持 `backend="cpu"`，
+  `render_frame` CPU 路径支持 scene（bloch+heatmap+title）
+- GL 降级链（`render/context.py`）：`create_gl_context` 先试 GL 3.3 再降 3.2，
+  每次降级打印决策日志，全部失败抛 `GLUnavailableError`；新增
+  `GLUnavailableError` 异常类型
+- 环境变量 `GPUQVIZ_BACKEND`（auto/gl/cpu）强制指定后端，优先级高于
+  `detect_backend()` 自动探测和调用方 `backend` 参数默认值；`detect_backend`
+  和 `resolve_backend` 尊重环境变量
+- `report_env()` 新增"实际渲染路径"列（显示 `GPUQVIZ_BACKEND` 或探测结果）；
+  NVENC 探测改用隔离子进程 `nvenc_available()`
+- CI：新增 `cpu-portability` job（ubuntu-latest，不装 CUDA，`GPUQVIZ_BACKEND=cpu`
+  下 `render_bloch_video` + `render_heatmap_video` 各出 2s 小视频并用 PyAV
+  校验帧数，作为可移植性回归门禁）；test job 安装 `cpu-fallback` extras
+- 测试：`tests/test_cpu_portability.py`（10 例：环境变量后端选择、CPU 软光栅
+  基元、热图 LUT 查表、CPU 热图出片、CPU render_frame PNG、CPU GHZ 多球）
+- 基准：`benchmarks/suite.py` 重写，新增 CPU 优化前后对照行；
+  `docs/benchmarks.md` 更新
+
 ## 未发布（S7 布局/样式系统 + 出版级静态图）
 
 - 样式系统扩展：`STYLES` 新增 `bw`（论文黑白：纯白背景、黑轴、灰球壳、深灰矢量）

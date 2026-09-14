@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import traceback
 
@@ -35,9 +36,12 @@ def _check_gl() -> str:
 
 
 def _check_nvenc() -> str:
-    import PyNvVideoCodec
+    from .encode import nvenc_available
 
-    return f"PyNvVideoCodec {getattr(PyNvVideoCodec, '__version__', 'unknown')}"
+    if nvenc_available():
+        import PyNvVideoCodec
+        return f"PyNvVideoCodec {getattr(PyNvVideoCodec, '__version__', 'unknown')} (session OK)"
+    return "session unavailable"
 
 
 def _check_pyav() -> str:
@@ -60,14 +64,21 @@ def _check_numba() -> str:
 
 def _check_interop() -> str:
     """CUDA-GL interop 探测（S5 优化路径的可用性，未启用时 pinned 路径兜底）。"""
-    import cupy as cp
-    import moderngl
-
     import ctypes
     if sys.platform == "win32":
         # WGL/NV interop 需要共享设备上下文，探测复杂度高：报告"未启用"
         return "available in principle (not enabled; pinned-memory path active)"
     raise ImportError("interop probe only reported on Windows; Linux uses EGL path")
+
+
+def _actual_render_path() -> str:
+    """返回实际将使用的渲染路径（尊重 GPUQVIZ_BACKEND 环境变量与探测结果）。"""
+    env = os.environ.get("GPUQVIZ_BACKEND", "").strip().lower()
+    if env in ("gl", "cpu"):
+        return f"cpu (GPUQVIZ_BACKEND={env})" if env == "cpu" else f"gl (GPUQVIZ_BACKEND={env})"
+    from .backends import detect_backend
+
+    return detect_backend()
 
 
 def report_env() -> str:
@@ -90,6 +101,13 @@ def report_env() -> str:
         status, detail = _check(label, fn)
         statuses[label] = status
         rows.append(f"  {label:<24} {status:<8} {detail}")
+
+    # 实际渲染路径（S8 新增列）
+    try:
+        render_path = _actual_render_path()
+    except Exception:  # noqa: BLE001
+        render_path = "unknown"
+    rows.append(f"  {'实际渲染路径':<24} {'':8} {render_path}")
 
     backend = "cuda" if statuses["CUDA (cupy)"] == "OK" and statuses["OpenGL (moderngl)"] == "OK" else "cpu"
 

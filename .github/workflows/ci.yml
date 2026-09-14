@@ -19,7 +19,7 @@ jobs:
       - name: Install (CPU-only extras; GPU extras need CUDA runners)
         run: |
           python -m pip install --upgrade pip
-          pip install -e .[qiskit,dev]
+          pip install -e .[qiskit,cpu-fallback,dev]
       - name: Lint
         run: |
           ruff check src tests examples benchmarks scripts
@@ -30,3 +30,47 @@ jobs:
           python -m pytest tests -q -k "not gpu_only"
         # CI runner 无 NVIDIA GPU：GL 用例会因无法创建 standalone context 被
         # importorskip 跳过；NVENC/NV12 用例自带 skipif。软光栅与数值用例全跑。
+
+  cpu-portability:
+    """S8: 无 GPU 环境可移植性回归门禁——强制 CPU 后端完整出片。
+    ubuntu runner 不装 CUDA/cupy，模拟零硬件用户的实际环境。
+    """
+    runs-on: ubuntu-latest
+    env:
+      GPUQVIZ_BACKEND: cpu
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install (CPU-only, no GPU extras)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[qiskit,cpu-fallback,dev]
+      - name: CPU backend bell + heatmap video
+        run: |
+          python - <<'PY'
+          import av, os
+          from qiskit import QuantumCircuit
+          from gpuqviz import render_bloch_video, render_heatmap_video
+          from gpuqviz.backends import detect_backend
+          assert detect_backend() == "cpu", f"expected cpu, got {detect_backend()}"
+          qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
+          # bell 2s@30fps
+          out1 = render_bloch_video(circuit=qc, steps=20, fps=30, seconds=2,
+                                     out="out/cpu_bell.mp4", backend="cpu")
+          with av.open(str(out1)) as c:
+              n1 = sum(1 for _ in c.decode(video=0))
+          assert n1 == 60, f"bell: expected 60 frames, got {n1}"
+          assert os.path.getsize(out1) > 1000
+          # ghz heatmap 2s@30fps
+          qc3 = QuantumCircuit(3); qc3.h(0); qc3.cx(0,1); qc3.cx(1,2)
+          out2 = render_heatmap_video(circuit=qc3, steps=20, fps=30, seconds=2,
+                                       out="out/cpu_heatmap.mp4", backend="cpu")
+          with av.open(str(out2)) as c:
+              n2 = sum(1 for _ in c.decode(video=0))
+          assert n2 == 60, f"heatmap: expected 60 frames, got {n2}"
+          assert os.path.getsize(out2) > 1000
+          print(f"CPU portability: bell={n1}f, heatmap={n2}f — PASS")
+          PY
