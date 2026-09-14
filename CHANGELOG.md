@@ -1,5 +1,28 @@
 # Changelog
 
+## 未发布（S9 Jupyter 交互集成）
+
+- `gpuqviz.show(circuit=None, states=None, scene=None, steps=60, out=None,
+  as_video=False, height=520, **kwargs)`：一行代码在 Jupyter notebook 中内嵌
+  交互式 3D 播放器（`src/gpuqviz/jupyter.py`）
+  - 环境检测：`_is_notebook()` 检查 `IPython.get_ipython()` 是否为 ZMQ 内核
+    （notebook / JupyterLab / qtconsole），终端回退写 HTML 文件
+  - notebook 内：复用 `export_html` payload 构建，生成自包含 HTML（three.js
+    内联，断网可用），通过 `IPython.display.HTML` 以 iframe `srcdoc` 内嵌，
+    `height` 可调
+  - payload 降级：超 8MB 时自动剥离 `states_re`/`states_im`（只保留 Bloch
+    向量），文件从 ~8.7MB 降至 ~0.7MB 并发 `RuntimeWarning`
+  - `as_video=True`：先渲染 MP4 再用 `IPython.display.Video` 内嵌
+- `viewer.js` 降级兼容：`states_re` 为 null 时 `updatePanel` 跳过概率条更新、
+  `renderFrame` 跳过态矢量插值，只显示 Bloch 向量
+- 包级入口：`__init__.py` 导出 `show`（惰性 import，未装 IPython 不影响
+  `import gpuqviz`）
+- 测试：`tests/test_jupyter.py`（11 例：非 notebook 写文件、payload 数值正确、
+  降级触发/不触发、`_strip_state_panel`、viewer.js null guard、环境检测、
+  nbconvert 执行最小 notebook smoke）
+- 文档：README 新增"Jupyter 交互集成"小节（show 示例 + 参数说明），
+  `docs/api.md` 增补 `show` 签名与后端/ Jupyter 小节
+
 ## 未发布（S8 CPU/无 GL 环境可移植性 + NVENC 修复）
 
 - NVENC 修复：`NvencEncoder` 重写适配 PyNvVideoCodec 2.x API（`FFmpegMuxer`

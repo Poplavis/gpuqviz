@@ -187,6 +187,16 @@ window.GPUQVIZ_VIEWER = (function () {
     }
 
     function updatePanel(state) {
+      if (!D.states_re) {
+        // payload 降级：状态面板数据已被剥离，仅更新 Bloch 向量
+        const lines = [];
+        for (let q = 0; q < nQ; q++) {
+          const v = state.bloch[q];
+          lines.push("q" + q + ": (" + v[0].toFixed(3) + ", " + v[1].toFixed(3) + ", " + v[2].toFixed(3) + ")");
+        }
+        blochList.textContent = lines.join("\n");
+        return;
+      }
       for (let i = 0; i < dim; i++) {
         const p = state.re[i] * state.re[i] + state.im[i] * state.im[i];
         const amp = Math.sqrt(p);
@@ -205,8 +215,10 @@ window.GPUQVIZ_VIEWER = (function () {
 
     function renderFrame() {
       const { i, w } = keyFramesAt(t);
-      // 态矢量插值 + renormalize
-      const st = lerpState(D.states_re[i], D.states_im[i], D.states_re[i + 1], D.states_im[i + 1], w);
+      // 态矢量插值 + renormalize（states_re 为 null 时降级为空对象）
+      const st = D.states_re
+        ? lerpState(D.states_re[i], D.states_im[i], D.states_re[i + 1], D.states_im[i + 1], w)
+        : { re: [], im: [] };
       // Bloch slerp
       const bloch = [];
       for (let q = 0; q < nQ; q++) {

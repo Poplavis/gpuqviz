@@ -17,7 +17,23 @@
 
 ### `report_env()`
 
-环境能力报告字符串。
+环境能力报告字符串。S8 起新增"实际渲染路径"列，显示 `GPUQVIZ_BACKEND` 环境变量或探测结果。
+
+### `show(circuit=None, states=None, scene=None, steps=60, out=None, as_video=False, height=520, **kwargs)`
+
+Jupyter 交互集成：一行代码在 notebook 中内嵌 3D 播放器。
+
+- `circuit` / `states` / `scene` 三选一（与 `export_html` / `render_bloch_video` 语义一致）
+- **notebook 环境**：`IPython.display.HTML` 以 iframe `srcdoc` 内嵌自包含 HTML
+  （three.js 内联，断网可用），`height` 控制播放器高度
+- **非 notebook**（终端/脚本）：回退为写 HTML 文件并打印路径
+- **payload 降级**：态矢量数据超 8MB 时自动剥离状态面板（只保留 Bloch 向量），
+  发出 `RuntimeWarning`，文件从 ~8.7MB 降至 ~0.7MB
+- `as_video=True`：先渲染 MP4 再用 `IPython.display.Video` 内嵌
+- `kwargs` 透传 `fps` / `duration` / `title` / `colormap` / `style` / `codec` /
+  `quality` / `backend` 等参数
+
+惰性 import IPython：未装 IPython 时 `import gpuqviz` 不受影响，调用 `show()` 才报错。
 
 ## Scene 模型（gpuqviz.scene）
 
@@ -55,4 +71,11 @@
 
 ## 后端（gpuqviz.backends）
 
-`detect_backend()` → `"gl"` | `"cpu"`；`backends.cpu.SoftRasterContext / SoftRasterBloch`。
+`detect_backend()` → `"gl"` | `"cpu"`；尊重 `GPUQVIZ_BACKEND` 环境变量（auto/gl/cpu）。
+`resolve_backend(backend)` 把 `"auto"` 解析为实际后端名。
+`backends.cpu.SoftRasterContext` / `SoftRasterBloch` / `SoftRasterHeatmap`（S8：numba 加速 + LUT 伪彩）。
+
+## Jupyter 集成（gpuqviz.jupyter）
+
+`show(circuit=None, states=None, scene=None, ...)`：notebook 中一行代码内嵌 3D 播放器，
+非 notebook 回退写 HTML 文件。详见顶层函数小节。

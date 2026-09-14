@@ -126,6 +126,36 @@ export_html(circuit=qc, out="out/viewer.html", title="贝尔态演化")
 0.25×~4× 倍速、时间轴拖动（←/→ 逐帧步进），底部实时显示当前量子状态——
 每个基态的概率条、振幅与相位，以及各 qubit 的 Bloch 向量。
 
+### Jupyter 交互集成
+
+```python
+from qiskit import QuantumCircuit
+import gpuqviz
+
+qc = QuantumCircuit(2)
+qc.h(0); qc.cx(0, 1)
+
+# notebook 中一行代码 → 内嵌可交互 3D 播放器（断网可用）
+gpuqviz.show(qc)
+```
+
+`show()` 自动检测运行环境：
+
+- **Jupyter notebook / JupyterLab**：通过 `IPython.display.HTML` 以 iframe `srcdoc`
+  内嵌自包含 HTML（three.js 内联，无需联网），直接出现播放/暂停/倍速/时间轴的 3D 播放器
+- **终端 / 脚本**：回退为写 HTML 文件并打印路径（与 CLI `export` 行为一致）
+- **大 payload 降级**：当态矢量数据超 8MB（约 10 qubit × 200 帧）时自动剥离
+  状态面板数据（只保留 Bloch 向量），文件从 ~8.7MB 降至 ~0.7MB 并发出警告
+- **`as_video=True`**：先渲染 MP4 再用 `IPython.display.Video` 内嵌
+
+```python
+# 自定义参数
+gpuqviz.show(qc, steps=60, fps=30, height=600, title="贝尔态")
+
+# 渲染视频内嵌
+gpuqviz.show(qc, as_video=True, seconds=3, fps=30)
+```
+
 ### pyqpanda（本源量子）电路
 
 ```python
@@ -240,6 +270,7 @@ python scripts/gen_font_atlas.py   # 重新烘焙字体图集
 - [x] 高层门/复杂电路兼容：U/U1/U2/U3、受控参数门（CRX/CRY/CRZ/CH/CU）、任意控制位 MCX/MCP/Toffoli、ISWAP，复合门递归展开，`transpile` 兜底未知指令；14 电路对 qiskit 保真度 ≥ 1-1e-9（见 `tests/test_gates_matrix.py`、`examples/grover_mcx.py`）
 - [x] 布局/样式系统 + 出版级静态图：`cols`/`figsize` 参数、`bw`（论文黑白）/`poster` 预设、`style_overrides` 覆盖；`render_frame()` 单帧 PNG 导出（scale 超采样抗锯齿，等效 300dpi）
 - [x] CPU/无 GL 环境可移植性：numba 加速软光栅（CPU bell 116s→6s，19×）、完整 `HeatmapTrack`/`PhaseDisc`/PIL 文字 CPU 路径、`GPUQVIZ_BACKEND` 环境变量、GL 3.3→3.2 降级链、CI 无 GPU 门禁
+- [x] Jupyter 交互集成：`gpuqviz.show(qc)` 一行代码内嵌 3D 播放器（断网可用），大 payload 自动降级，`as_video=True` 渲染视频内嵌
 - [ ] CUDA-GL interop 零拷贝读回（当前 pinned memory）
 - [ ] QASM 电路文件直接输入
 - [ ] 更多国内模拟器适配（QPilotMachine / QCloud 等）
