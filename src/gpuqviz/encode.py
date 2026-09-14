@@ -8,6 +8,8 @@ S1 阶段 AvEncoder 在进程内完成 RGBA→YUV420p 转换（FFmpeg swscale，
 from __future__ import annotations
 
 import logging
+import subprocess
+import sys
 import warnings
 from fractions import Fraction
 from pathlib import Path
@@ -186,16 +188,39 @@ class NvencEncoder(Encoder):
             self._muxer = None
 
 
-def nvenc_available() -> bool:
-    """探测 NVENC 会话能否真正打开（部分驱动上 nvEncOpenEncodeSessionEx 失败）。"""
-    try:
-        import PyNvVideoCodec as nvc
+# NVENC 探测在隔离子进程执行：部分驱动（如 Pascal EOL 后的 R580+）会在
+# nvEncOpenEncodeSessionEx 阶段触发原生层崩溃（access violation），
+# Python 层 try/except 接不住，会直接杀死宿主进程。
+_NVENC_PROBE_SNIPPET = (
+    "import PyNvVideoCodec as nvc\n"
+    "enc = nvc.CreateEncoder(64, 64, 'NV12', usecpuinputbuffer=False, codec='h264')\n"
+    "enc.EndEncode()\n"
+)
 
-        enc = nvc.CreateEncoder(64, 64, "NV12", usecpuinputbuffer=False, codec="h264")
-        enc.EndEncode()
-        return True
-    except Exception:  # noqa: BLE001
-        return False
+_NVENC_CACHE: bool | None = None
+
+
+def nvenc_available() -> bool:
+    """探测 NVENC 会话能否真正打开（部分驱动上 nvEncOpenEncodeSessionEx 失败）。
+
+    在子进程中执行探测：正常退出 → 可用；非零退出（含原生崩溃、ImportError、
+    设备不支持）→ 不可用。结果进程内缓存。
+    """
+    global _NVENC_CACHE
+    if _NVENC_CACHE is not None:
+        return _NVENC_CACHE
+    try:
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        r = subprocess.run(
+            [sys.executable, "-c", _NVENC_PROBE_SNIPPET],
+            capture_output=True, timeout=30, creationflags=flags,
+        )
+        _NVENC_CACHE = r.returncode == 0
+    except Exception:  # noqa: BLE001 - 探测永远不抛
+        _NVENC_CACHE = False
+    if not _NVENC_CACHE:
+        logger.info("NVENC probe failed (session unavailable or driver blocked)")
+    return _NVENC_CACHE
 
 
 def create_encoder(width: int, height: int, fps: float, out_path, codec: str = "h264",

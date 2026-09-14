@@ -237,6 +237,7 @@ python scripts/gen_font_atlas.py   # 重新烘焙字体图集
 
 - [x] 交互式 3D 播放器：导出单文件 HTML（播放/暂停/倍速/时间轴 + 当前量子状态面板），设计见 [docs/INTERACTIVE_VIEWER.md](docs/INTERACTIVE_VIEWER.md)
 - [x] pyqpanda（本源量子）电路兼容
+- [x] 高层门/复杂电路兼容：U/U1/U2/U3、受控参数门（CRX/CRY/CRZ/CH/CU）、任意控制位 MCX/MCP/Toffoli、ISWAP，复合门递归展开，`transpile` 兜底未知指令；14 电路对 qiskit 保真度 ≥ 1-1e-9（见 `tests/test_gates_matrix.py`、`examples/grover_mcx.py`）
 - [ ] CUDA-GL interop 零拷贝读回（当前 pinned memory）
 - [ ] QASM 电路文件直接输入
 - [ ] 更多国内模拟器适配（QPilotMachine / QCloud 等）

@@ -97,7 +97,16 @@ def _slice_circuit_by_depth(circuit, d0: int, d1: int):
         inst_layer.extend([li] * len(layer["graph"].op_nodes()))
 
     sub = QuantumCircuit(circuit.num_qubits)
+    warned_measure = False
     for idx, inst in enumerate(circuit.data):
+        if inst.operation.name in ("measure", "reset"):
+            # Statevector.evolve 不接受测量/重置指令；态矢量可视化下测量
+            # 不改变演化，跳过并提示一次
+            if not warned_measure:
+                print("[gpuqviz] 电路含中途 measure/reset，态矢量演化中按"
+                      "无操作处理（可视化结果不含测量塌缩）")
+                warned_measure = True
+            continue
         if d0 <= inst_layer[idx] < d1:
             qargs = [sub.qubits[circuit.find_bit(q).index] for q in inst.qubits]
             cargs = [sub.clbits[circuit.find_bit(c).index] for c in inst.clbits]

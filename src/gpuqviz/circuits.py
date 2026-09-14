@@ -19,22 +19,37 @@ _X = np.array([[0, 1], [1, 0]], np.complex128)
 _Y = np.array([[0, -1j], [1j, 0]], np.complex128)
 _Z = np.diag([1, -1]).astype(np.complex128)
 _S = np.diag([1, 1j]).astype(np.complex128)
+_S_DG = _S.conj().copy()
 _T = np.diag([1, np.exp(1j * np.pi / 4)]).astype(np.complex128)
+_T_DG = _T.conj().copy()
+_SWAP = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]],
+                 np.complex128)
+_ISWAP = np.array([[1, 0, 0, 0], [0, 0, 1j, 0], [0, 1j, 0, 0], [0, 0, 0, 1]],
+                  np.complex128)
 
-_MATRICES = {"I": _I2, "H": _H, "X": _X, "Y": _Y, "Z": _Z, "S": _S, "T": _T}
+_MATRICES = {
+    "I": _I2, "H": _H, "X": _X, "Y": _Y, "Z": _Z, "S": _S, "T": _T,
+    "SDG": _S_DG, "TDG": _T_DG,
+}
+
+# 可作为受控 base 的门名（受控前缀剥离的终止条件）
+_BASE_NAMES = frozenset(_MATRICES) | {"RX", "RY", "RZ", "U", "U3", "U2"}
 
 
 @dataclass
 class Gate:
-    """框架无关的门：name ∈ 单比特名 或 RX/RY/RZ/CNOT/CZ/SWAP/BARRIER。
+    """框架无关的门。
 
     targets/controls 为逻辑 qubit 下标（qiskit/pyqpanda 均为小端序）。
     params：旋转门角度等。
+    matrix：可选的显式酉矩阵（2^k×2^k，LSB 对应 targets[0]，qiskit
+    Operator 约定）——适配器无法直译的门以 UNITARY 形式携带矩阵下发了。
     """
     name: str
     targets: list[int] = field(default_factory=list)
     controls: list[int] = field(default_factory=list)
     params: list[float] = field(default_factory=list)
+    matrix: np.ndarray | None = field(default=None, repr=False, compare=False)
 
 
 def _as_le(state: np.ndarray) -> np.ndarray:
@@ -54,13 +69,98 @@ def _apply_1q(state: np.ndarray, matrix: np.ndarray, target: int) -> np.ndarray:
     return np.moveaxis(psi, 0, target).transpose(*reversed(range(n))).reshape(-1)
 
 
-def _apply_cx(state: np.ndarray, control: int, target: int) -> np.ndarray:
-    psi = np.moveaxis(_as_le(state), control, 0).copy()
-    # 控制态为 |1> 的半空间对 target 做 X
-    psi[1] = np.moveaxis(psi[1], target - 1, 0)[::-1]
-    psi[1] = np.moveaxis(psi[1], 0, target - 1)
-    n = psi.ndim
-    return np.moveaxis(psi, 0, control).transpose(*reversed(range(n))).reshape(-1)
+def _apply_matrix(state: np.ndarray, matrix: np.ndarray, qubits: list[int]) -> np.ndarray:
+    """把 2^k×2^k 酉矩阵作用到指定 qubit 集合（通用门作用原语）。
+
+    qubits 采用 qiskit Operator 约定：qubits[0] 是矩阵的最低位（LSB）。
+    受控门按 targets 在前（低位）、controls 在后（高位）拼入 qubits，
+    配合 _controlled 构造的矩阵（base 作用于低位块、控制位全 1 时生效）。
+    """
+    k = len(qubits)
+    dim = 1 << k
+    matrix = np.asarray(matrix, dtype=np.complex128)
+    if matrix.shape != (dim, dim):
+        raise ValueError(f"matrix shape {matrix.shape} does not match {k} qubits")
+    if k == 1:
+        return _apply_1q(state, matrix, qubits[0])
+    n = int(round(np.log2(state.shape[0])))
+    psi = _as_le(state)  # 轴 i ↔ qubit i
+    # 逆序移动参与轴：展平后 qubits[0] 位于最低位
+    psi = np.moveaxis(psi, list(reversed(qubits)), list(range(k)))
+    rest = psi.shape[k:]
+    psi = matrix @ psi.reshape(dim, -1)
+    psi = psi.reshape((2,) * k + rest)
+    psi = np.moveaxis(psi, list(range(k)), list(reversed(qubits)))
+    return np.ascontiguousarray(psi.transpose(*reversed(range(n)))).reshape(-1)
+
+
+def _controlled(base: np.ndarray, n_ctrl: int) -> np.ndarray:
+    """base（2^t×2^t）→ 多控制门矩阵：控制位为高位，全 1 时作用 base。"""
+    dim = base.shape[0]
+    m = np.eye((1 << n_ctrl) * dim, dtype=np.complex128)
+    m[-dim:, -dim:] = base
+    return m
+
+
+def _u3(theta: float, phi: float, lam: float) -> np.ndarray:
+    c, s = np.cos(theta / 2), np.sin(theta / 2)
+    return np.array(
+        [[c, -np.exp(1j * lam) * s],
+         [np.exp(1j * phi) * s, np.exp(1j * (phi + lam)) * c]],
+        np.complex128)
+
+
+def _rotation(name: str, theta: float) -> np.ndarray:
+    c, s = np.cos(theta / 2), np.sin(theta / 2)
+    if name == "RX":
+        return np.array([[c, -1j * s], [-1j * s, c]], np.complex128)
+    if name == "RY":
+        return np.array([[c, -s], [s, c]], np.complex128)
+    return np.diag([np.exp(-1j * theta / 2), np.exp(1j * theta / 2)]).astype(np.complex128)
+
+
+def _gate_matrix(gate: Gate) -> tuple[np.ndarray, list[int]]:
+    """Gate → (酉矩阵, qubits)。qubits 满足 _apply_matrix 的 LSB-first 约定。"""
+    if gate.matrix is not None:
+        return np.asarray(gate.matrix, np.complex128), list(gate.targets)
+    name = gate.name.upper()
+    tgt, ctrl, params = list(gate.targets), list(gate.controls), list(gate.params)
+
+    # 纯相位类（受控与否都只在对角线加相位）
+    if name in ("P", "PHASE", "U1"):
+        return np.diag([1.0, np.exp(1j * params[0])]).astype(np.complex128), tgt
+    if name in ("CP", "MCP", "MCPHASE"):
+        k = len(tgt) + len(ctrl)
+        m = np.eye(1 << k, dtype=np.complex128)
+        m[-1, -1] = np.exp(1j * params[0])
+        return m, tgt + ctrl
+
+    # 控制位归一：名字剥掉 C / MC / MCR 前缀得到 base 门
+    if name == "CNOT":
+        name = "CX"  # 历史别名；否则会被 "C" 前缀剥成非法的 "NOT"
+    base_name, n_ctrl = name, len(ctrl)
+    while n_ctrl and base_name not in _BASE_NAMES:
+        for pfx in ("MCR", "MC", "C"):
+            if base_name.startswith(pfx) and len(base_name) > len(pfx):
+                base_name = base_name[len(pfx):]
+                break
+        else:
+            break
+
+    if base_name in _MATRICES:
+        base = _MATRICES[base_name]
+    elif base_name in ("RX", "RY", "RZ"):
+        base = _rotation(base_name, params[0])
+    elif base_name in ("U", "U3"):
+        base = _u3(params[0], params[1], params[2])
+    elif base_name == "U2":
+        base = _u3(np.pi / 2, params[0], params[1])
+    else:
+        raise ValueError(f"unsupported gate: {gate.name}")
+
+    if n_ctrl:
+        return _controlled(base, n_ctrl), tgt + ctrl
+    return base, tgt
 
 
 def apply_gate(state: np.ndarray, gate: Gate) -> np.ndarray:
@@ -68,38 +168,12 @@ def apply_gate(state: np.ndarray, gate: Gate) -> np.ndarray:
     name = gate.name.upper()
     if name == "BARRIER":
         return state
-    if name in _MATRICES:
-        return _apply_1q(state, _MATRICES[name], gate.targets[0])
-    if name in ("RX", "RY", "RZ"):
-        theta = gate.params[0]
-        c, s = np.cos(theta / 2), np.sin(theta / 2)
-        if name == "RX":
-            m = np.array([[c, -1j * s], [-1j * s, c]], np.complex128)
-        elif name == "RY":
-            m = np.array([[c, -s], [s, c]], np.complex128)
-        else:
-            m = np.diag([np.exp(-1j * theta / 2), np.exp(1j * theta / 2)])
-        return _apply_1q(state, m, gate.targets[0])
-    if name in ("CNOT", "CX"):
-        return _apply_cx(state, gate.controls[0], gate.targets[0])
-    if name == "CZ":
-        c, t = gate.controls[0], gate.targets[0]
-        n = int(round(np.log2(state.shape[0])))
-        psi = _as_le(state).copy()
-        idx = [slice(None)] * n
-        idx[c] = 1
-        idx[t] = 1
-        psi[tuple(idx)] *= -1
-        return psi.transpose(*reversed(range(n))).reshape(-1)
     if name == "SWAP":
-        a, b = gate.targets
-        psi = _as_le(state)
-        n = psi.ndim
-        axes = list(range(n))
-        axes[a], axes[b] = axes[b], axes[a]
-        psi = psi.transpose(axes)  # LE 视图下交换 a/b 两个 qubit 轴
-        return np.ascontiguousarray(psi.transpose(*reversed(range(n)))).reshape(-1)
-    raise ValueError(f"unsupported gate: {gate.name}")
+        return _apply_matrix(state, _SWAP, list(gate.targets))
+    if name == "ISWAP":
+        return _apply_matrix(state, _ISWAP, list(gate.targets))
+    matrix, qubits = _gate_matrix(gate)
+    return _apply_matrix(state, matrix, qubits)
 
 
 def evolve_gates(n_qubits: int, gates: list[Gate]) -> list[np.ndarray]:
@@ -139,8 +213,10 @@ def sample_snapshots(snapshots: list[np.ndarray], steps: int) -> list[np.ndarray
 
 # ---------------- ORIGINIR 解析（pyqpanda 适配器的中间层） ----------------
 
-_ORIGINIR_1Q = {"H", "X", "Y", "Z", "S", "T", "I", "RX", "RY", "RZ"}
-_ORIGINIR_2Q = {"CNOT", "CX", "CZ", "SWAP"}
+_ORIGINIR_1Q = {"H", "X", "Y", "Z", "S", "T", "I", "SDG", "TDG",
+                "RX", "RY", "RZ", "U1", "U2", "U3", "P"}
+_ORIGINIR_2Q = {"CNOT", "CX", "CZ", "SWAP", "ISWAP", "CRZ", "CH", "CU3"}
+_ORIGINIR_3Q = {"TOFFOLI", "CCX"}
 _QUBIT_RE = re.compile(r"q\[(\d+)\]")
 _PARAM_RE = re.compile(r"\(([^)]*)\)")
 
@@ -178,13 +254,16 @@ def parse_originir(text: str) -> tuple[int, list[Gate]]:
         if not qubits:
             raise ValueError(f"cannot parse ORIGINIR line: {raw!r}")
         n_qubits = max(n_qubits, max(qubits) + 1)
-        if name in _ORIGINIR_1Q:
+        if name in _ORIGINIR_3Q:  # TOFFOLI q[0], q[1], q[2]：前两个为控制位
+            gates.append(Gate("CCX", targets=[qubits[2]], controls=qubits[:2]))
+        elif name in _ORIGINIR_1Q:
             gates.append(Gate(name, targets=[qubits[0]], params=params))
         elif name in _ORIGINIR_2Q:
-            if name in ("CNOT", "CX", "CZ"):
-                gates.append(Gate(name, targets=[qubits[1]], controls=[qubits[0]]))
-            else:  # SWAP
-                gates.append(Gate("SWAP", targets=[qubits[0], qubits[1]]))
+            if name in ("CNOT", "CX", "CZ", "CRZ", "CH", "CU3"):
+                gates.append(Gate(name, targets=[qubits[1]], controls=[qubits[0]],
+                                  params=params))
+            else:  # SWAP / ISWAP
+                gates.append(Gate(name, targets=[qubits[0], qubits[1]]))
         else:
             raise ValueError(f"unsupported ORIGINIR gate: {name}")
     if n_qubits == 0:

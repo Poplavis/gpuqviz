@@ -1,8 +1,8 @@
 # gpuqviz 分步实施计划 & 提示词设计
 
-> 配套设计文档：[DESIGN.md](./DESIGN.md)。本文档把设计拆成 6 个可独立验收的实施步骤（对应里程碑 M0–M4 + 收尾），每步附一段**自包含提示词**，可直接发给 AI 编程助手（Claude/GPT/Cursor 等）或作为开发任务说明使用。
+> 配套设计文档：[DESIGN.md](./DESIGN.md)。本文档把设计拆成 10 个可独立验收的实施步骤：S0–S5 为基础篇（对应里程碑 M0–M4 + 收尾，已完成），S6–S9 为优化篇（对应竞品 qiskit-state-evolution-recorder 的差距项），每步附一段**自包含提示词**，可直接发给 AI 编程助手（Claude/GPT/Cursor 等）或作为开发任务说明使用。
 >
-> 使用方式：按 S0→S5 顺序，每次投喂一个步骤的提示词；每步完成并验收后再进入下一步。所有提示词都假设工作目录为项目根目录 `E:\Projects\gpuqviz`，且 `DESIGN.md` 在根目录可见（提示词中已要求先阅读它）。
+> 使用方式：按步骤顺序，每次投喂一个步骤的提示词；每步完成并验收后再进入下一步。所有提示词都假设工作目录为项目根目录 `E:\Projects\gpuqviz`，且 `DESIGN.md` 在根目录可见（提示词中已要求先阅读它）。
 
 ---
 
@@ -16,6 +16,10 @@
 | S3 | NVENC 显存直喂 + 热图/相位渲染器 | 编码路径无 CPU 像素拷贝；热图示例出片 | M2 |
 | S4 | Scene 声明式 API + SDF 文字 + CLI | JSON 场景文件 → CLI 渲染出片；含中文标注 | M3 |
 | S5 | CPU 回退后端 + interop 优化 + 发布 | 无 N 卡机器可出片；性能基准报告；发 PyPI | M4 |
+| S6 | 高层门/复杂电路兼容性 | mcx、受控门、initialize、measure 等测试矩阵与 qiskit 数值一致（保真度 ≥ 1-1e-9） | M5 优化 |
+| S7 | 布局/样式系统 + 出版级静态图 | cols/figsize 自由布局；bw 论文风格；任意时刻高分辨率 PNG 出图 | M5 优化 |
+| S8 | CPU/无 GL 环境可移植性 | CI 无 GPU 环境完整出片（Bloch+热图）；CPU 路径提速 ≥ 5 倍 | M6 优化 |
+| S9 | Jupyter 交互集成 | `gpuqviz.show(qc)` 一行代码在 notebook 内出交互 3D 播放器 | M6 优化 |
 
 ---
 
@@ -260,6 +264,155 @@ S2 已完成。本步两个目标：① 编码路径消除 CPU 像素拷贝；�
 验收：在一台无 N 卡的机器（或 CI）上 `pip install .[cpu-fallback]` 后
 render_bloch_video 仍能出片（允许较慢）；15s@60fps Bell 态在 RTX 3060 级
 GPU 上 cuda 后端总耗时 ≤ 30s；`python -m build` 产出可用 wheel。
+```
+
+---
+
+# 优化篇（S6–S9）
+
+> 优化篇的目标是补齐与 [qiskit-state-evolution-recorder](https://github.com/sarumaj/qiskit-state-evolution-recorder)（PyPI v1.0.5，matplotlib + FFmpeg 逐帧 CPU 绘制）对比后的差距项：高层门兼容性（S6）、排版与出版级输出（S7）、零硬件门槛可移植性（S8）、notebook 体验（S9）。发布 PyPI 不在本篇范围内。
+
+## S6 · 高层门/复杂电路兼容性（M5 优化）
+
+### 提示词 S6
+
+```text
+请先阅读 src/gpuqviz/circuits.py 与 src/gpuqviz/adapters/__init__.py 的现状
+（Gate dataclass + numpy 模拟器 + ORIGINIR 解析，注意 _as_le 的 little-endian
+轴翻转约定）。S0–S5 已完成。本步目标：让采样路径对 qiskit 高层门与复杂电路
+达到"任意电路都能渲染"，补齐与 qiskit-state-evolution-recorder 的兼容性差距。
+要求：
+
+1. circuits.py 门覆盖扩展：
+   - 支持参数门 U(θ,φ,λ)、id、全局相位（global phase 不影响 Bloch/概率，
+     可丢弃但需注释说明）；
+   - 支持受控参数门 CRX/CRY/CRZ/CH/CU；
+   - 支持任意控制位数的多控制门（qiskit 的 MCX/MCPhase/ccx 系）；
+   - 复合门递归展开：instruction.definition 非空时递归下钻（覆盖
+     qiskit.circuit.library 的 QFT、自定义 Gate 等）；definition 为空但
+     本体是 UnitaryGate 时直接走矩阵路径。
+2. 测量与经典位处理：电路含 measure/measure_all 时自动剔除测量指令并打印
+   一行 debug 提示；barrier 保持为层边界（影响 sample_circuit 的分层采样）。
+3. 兜底策略：未知指令或展开异常时自动转译——qiskit 路径用
+   transpile(circuit, basis_gates=[基础门集], optimization_level=0) 后重走
+   采样；pyqpanda 路径依赖 transform_qprog_to_originir 的文本输出天然兜底。
+   兜底触发时打印 warning（说明哪个 gate 触发），保证"能出片"优先。
+4. tests/test_gates_matrix.py：参数化测试矩阵 ≥ 12 个电路（bell / ghz3 /
+   qft3 / 含 mcx 的简版 Grover / initialize 随机态 / controlled-RZ / 自定义
+   Gate / measure_all / UnitaryGate / global phase / 三层嵌套复合门 /
+   纯 barrier），断言 evolve_gates 末态与 qiskit.quantum_info.Statevector
+   的全局保真度 ≥ 1-1e-9，逐层快照在层边界处一致。
+5. examples/grover_mcx.py：3-qubit 含 mcx 的 Grover 两轮迭代 → out/grover.mp4。
+
+验收：pytest tests/test_gates_matrix.py 全绿；grover.mp4 中目标态振幅在两次
+迭代间可见放大/反转；兜底路径触发时视频仍正常生成。
+```
+
+---
+
+## S7 · 布局/样式系统 + 出版级静态图（M5 优化）
+
+### 提示词 S7
+
+```text
+S6 已完成。本步目标：补齐 recorder 的排版自由度（figsize/num_cols/matplotlib
+style）并增加出版级静态图输出。要求：
+
+1. 布局系统：render_bloch_video / Scene / CLI 增加参数
+   - cols：一行最多几个球，超出自动换行（语义对齐 recorder 的 num_cols）；
+   - figsize=(w,h)：接受 matplotlib 风格英寸元组，按 dpi=100 换算像素
+     （与 width/height 参数互斥，同时给出时报错）；
+   - margin / sphere_radius / spacing 微调项；相机距离公式随布局自动适配
+     （多行时取行距与列距的包络）。
+2. 样式系统：api.py 的 STYLES 增加 "bw"（论文黑白：纯白背景、黑轴、无辉光、
+   轨迹用深灰虚线）与 "poster"；允许用户传 dict 按 merge 语义覆盖任意键；
+   docs/api.md 列出全部可覆盖键及默认值。
+3. 静态图导出：
+   - api.render_frame(circuit|states|scene, t, out="fig.png", scale=2)：
+     渲染归一化时刻 t∈[0,1] 的单帧，scale 为超采样倍数（2 或 4）抗锯齿，
+     像素回读后直接内存 PNG 编码（zlib 手写 IHDR/IDAT 或 PIL，二选一并
+     注明理由），保持零中间文件精神；
+   - CLI：gpuqviz frame scene.json --time 0.5 -o fig.png --scale 2；
+   - 不做 SVG 矢量输出（超出范围），文档说明 300dpi 等效输出方式：
+     像素数 = 英寸 × 300。
+4. tests/test_layout.py：cols=2 四球布局包围盒不重叠；figsize 参数换算正确。
+   tests/test_frame_export.py：输出 PNG 尺寸 = 指定分辨率，且非纯色
+   （像素方差 > 阈值），scale=2 时边缘锯齿显著低于 scale=1（对比边缘
+   梯度能量，宽松断言即可）。
+5. examples/publication_fig.py：Bell 态 bw 风格 3200×2000 PNG + cols=2
+   八球 GHZ 场景，输出到 out/。
+
+验收：fig.png 放大 200% 后球体边缘无可见锯齿；bw 风格为纯白背景可直接插入
+论文；render_bloch_video 旧用法回归测试全绿。
+```
+
+---
+
+## S8 · CPU/无 GL 环境可移植性（M6 优化）
+
+### 提示词 S8
+
+```text
+请先阅读 src/gpuqviz/backends/cpu.py 与 src/gpuqviz/render/context.py 现状。
+S7 已完成。本步目标：让 gpuqviz 在无独显/无 GL 的机器上从"受限可用"升级到
+"好用"，对齐 recorder 的零硬件门槛。要求：
+
+1. CPU 软光栅补齐（backends/cpu.py）：
+   - 在现有 BlochTrack 基础上增加 HeatmapTrack 支持（numpy 伪彩：色表烘焙为
+     256×3 LUT 数组，禁止 import matplotlib）；
+   - 文字标注改用 PIL ImageFont（CPU 路径允许直接走 PIL 绘制，与 GL 路径的
+     SDF 方案互不影响）；
+   - 相位盘（phasesphere）CPU 版本用 numpy 直接算 HSV→RGB。
+2. 性能：态演化、Bloch 向量、软光栅像素混合的内循环用 numba @njit(parallel=
+   True) 加速，numba 缺失时静默回退 numpy；目标：Bell 3s@30fps 720p 纯 CPU
+   总耗时 ≤ 20s（当前基线 112.8s），写入 docs/benchmarks.md。
+3. GL 兼容层（render/context.py）：
+   - create_standalone_context 失败时依次尝试 standalone="egl"（Linux）、
+     GL 版本降级（3.3→3.2），全部失败才落纯 CPU 路径；每次降级打印一行
+     决策日志；
+   - 增加 GPUQVIZ_BACKEND 环境变量（auto/gl/cpu）强制指定，优先级高于
+     backend 参数的默认值；
+   - report_env() 输出"实际将使用的渲染路径"一列。
+4. CI 强化（.github/workflows/ci.yml）：新增无 GPU job（ubuntu runner 不装
+   CUDA），执行 render_bloch_video + render_heatmap_video 各出 2s 小视频并
+   用 PyAV 校验帧数，作为可移植性回归门禁。
+5. benchmarks/suite.py 增加 CPU 优化前后对照行。
+
+验收：CI 无 GPU job 全绿；本机 GPUQVIZ_BACKEND=cpu 渲染 bell 与 ghz 均出片
+且 ghz 热图伪彩正确；CPU bell 耗时达标（≤ 20s）。
+```
+
+---
+
+## S9 · Jupyter 交互集成（M6 优化）
+
+### 提示词 S9
+
+```text
+请先阅读 src/gpuqviz/export_html.py 与 assets/viewer.js 的 payload 约定。
+S8 已完成。本步目标：Jupyter 中一行代码出交互播放器，对齐并超越 recorder 的
+notebook 体验。要求：
+
+1. 实现 src/gpuqviz/jupyter.py：show(circuit=None, states=None, scene=None,
+   steps=60, out=None, as_video=False, height=520, **kwargs)
+   - 环境检测：IPython get_ipython() 存在且内核为 notebook/zmqshell 时走
+     内嵌路径；否则回退为写 HTML 文件并打印路径（与 CLI export 行为一致）；
+   - notebook 内：复用 export_html 的 payload 构建，生成自包含 HTML
+     （three.js 内嵌，断网可用），通过 IPython.display.HTML 以 iframe
+     srcdoc 内嵌展示，height 可调；
+   - payload 超 8MB（约 10 qubit）时自动降级：只内嵌 Bloch 数据并警告
+     （热图数据量大， Bloch 向量每帧仅 n×3 个数）；
+   - as_video=True 时先渲染 mp4 再用 IPython.display.Video 内嵌。
+2. 挂包级入口：src/gpuqviz/__init__.py 导出 show（惰性 import IPython，
+   未装 IPython 时 show 报友好错误）。
+3. tests/test_jupyter.py：非 notebook 环境回退写文件逻辑；payload 降级阈值
+   （构造超阈值 states 断言降级分支）；nbconvert 执行最小 notebook 的 smoke
+   测试（jupyter 未安装则 pytest.skip）。
+4. README 增加 "Jupyter 用法" 小节（一个 cell 示例：建电路 → gpuqviz.show(qc)）；
+   docs/api.md 增补 show 签名与参数说明。
+
+验收：JupyterLab 中执行 gpuqviz.show(bell_circuit) 直接出现可播放/暂停/倍速/
+拖动时间轴的 3D 播放器；断网状态可用；3-qubit 场景内嵌 HTML ≤ 5MB。
 ```
 
 ---
