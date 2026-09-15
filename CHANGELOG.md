@@ -1,5 +1,37 @@
 # Changelog
 
+## 未发布（内置算法库 + CLI demo + 引擎切换）
+
+- **CLI `demo` 命令**：`gpuqviz demo --algo grover` 一行命令演示内置算法
+  - `--list`：列出全部 12 个算法及简介
+  - `--format html|mp4|png`：交互式播放器 / 视频 / 静态帧
+  - `--engine qiskit|pyqpanda`：模拟引擎切换（默认 qiskit）
+  - `--n-qubits`/`--steps`/`--fps`/`--seconds`/`--style`/`--trail`/`--time`：可视化参数
+  - qiskit/pyqpanda 未安装时优雅提示安装命令
+  - pyqpanda 引擎自动管理 QVM 生命周期（init_qvm/qAlloc/finalize）
+- **`gpuqviz.algorithms` 模块**：12 个经典量子算法电路构建器
+  - 基础态：`bell()`、`ghz(n)`、`superposition(n)`
+  - 搜索：`grover(n, marked, iterations)`（统一原有两个不一致实现）
+  - 变换：`qft(n, inverse=False)`
+  - 估计：`phase_estimation(n_count, theta)`
+  - 查询复杂度：`deutsch_jozsa(oracle_type, n)`、`bernstein_vazirani(secret)`、`simon(s, n)`
+  - 通信：`teleportation()`、`superdense(message)`
+  - 游走：`quantum_walk(n, steps)`
+  - 每个算法接受 `engine="qiskit"|"pyqpanda"|"numpy"` 参数
+  - 注册表 `ALGORITHM_REGISTRY` + `get_algorithm(name)` + `list_algorithms()`
+  - 包级导出：`from gpuqviz import algorithms` / `from gpuqviz.algorithms import grover`
+- **引擎切换架构**：`engine` 参数贯穿 CLI → 算法库 → 可视化 API
+  - qiskit（默认）：QuantumCircuit → sample_circuit / evolve_gates
+  - pyqpanda：QProg → ORIGINIR → numpy（CLI 自动创建 CPUQVM）
+  - numpy（保留扩展）：list[Gate] → evolve_gates（无外部依赖）
+- **测试**：`tests/test_algorithms.py`（45 例：注册表完整性、每个算法 qiskit/numpy
+  路径一致性、数值正确性验证——Bell 末态、GHZ 纠缠、Grover 振幅放大、QFT†∘QFT=I、
+  QPE 相位编码、DJ 常数/平衡判定、BV 秘密恢复、隐形传态态转移、超密编码消息解码、
+  Simon 电路一致性、量子游走一致性、引擎参数验证）
+- **示例**：`examples/algorithms_demo.py`（遍历 12 个算法批量生成 HTML 演示）
+- **文档**：README 新增"内置算法库"小节 + CLI demo 用法 + roadmap 勾选；
+  `docs/api.md` 新增 `gpuqviz.algorithms` 命名空间与 CLI demo 参数说明
+
 ## 未发布（交互式电路图 + Bloch 球联动）
 
 - `export_html(circuit=qc)` / `show(qc)` 自动在播放器顶部绘制 **SVG 量子电路图**，

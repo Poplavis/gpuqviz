@@ -187,7 +187,42 @@ gpuqviz env                           # 环境能力自检（CUDA / OpenGL / NVE
 gpuqviz render scene.json -o out.mp4  # JSON 场景出片
 gpuqviz export scene.json -o viewer.html   # 交互式 3D 播放器导出
 gpuqviz preview scene.json            # 实时预览（需 [preview] 扩展）
+gpuqviz demo --list                   # 列出内置算法
+gpuqviz demo --algo grover            # 一行命令演示（默认 HTML 交互播放器）
+gpuqviz demo --algo qft --format mp4  # 指定输出格式
+gpuqviz demo --algo bell --engine pyqpanda  # 切换模拟引擎
 ```
+
+### 内置算法库
+
+`gpuqviz.algorithms` 提供 12 个经典量子算法电路构建器，每种算法返回 qiskit `QuantumCircuit`（`engine="qiskit"`）、pyqpanda `QProg`（`engine="pyqpanda"`）或 `list[Gate]`（`engine="numpy"`，无外部依赖），可直接传入可视化 API：
+
+```python
+from gpuqviz.algorithms import grover, qft, bell
+from gpuqviz import export_html
+
+# 一行构建 + 一行可视化
+qc = grover(n=3, marked=0b101, iterations=2)
+export_html(circuit=qc, out="out/grover.html", steps=200)
+
+# numpy 路径（不需要 qiskit）
+gates = qft(n=3, engine="numpy")
+```
+
+| 算法 | 函数 | 类别 | 默认 qubit |
+|---|---|---|---|
+| Bell 态 | `bell()` | 基础态 | 2 |
+| GHZ 态 | `ghz(n=3)` | 基础态 | 3 |
+| 均匀叠加 | `superposition(n=3)` | 基础态 | 3 |
+| Grover 搜索 | `grover(n=3, marked=0b101)` | 搜索 | 3 |
+| 量子傅里叶变换 | `qft(n=3)` | 变换 | 3 |
+| 量子相位估计 | `phase_estimation(n_count=3, theta=0.375)` | 估计 | 4 |
+| Deutsch-Jozsa | `deutsch_jozsa(oracle_type="balanced", n=3)` | 查询复杂度 | 4 |
+| Bernstein-Vazirani | `bernstein_vazirani(secret="101")` | 查询复杂度 | 3 |
+| 量子隐形传态 | `teleportation()` | 通信 | 3 |
+| 超密编码 | `superdense(message="11")` | 通信 | 2 |
+| Simon 算法 | `simon(s="01")` | 查询复杂度 | 4 |
+| 量子随机游走 | `quantum_walk(n=3, steps=3)` | 游走 | 3 |
 
 ## API 速览
 
@@ -277,9 +312,11 @@ python scripts/gen_font_atlas.py   # 重新烘焙字体图集
 - [x] CPU/无 GL 环境可移植性：numba 加速软光栅（CPU bell 116s→6s，19×）、完整 `HeatmapTrack`/`PhaseDisc`/PIL 文字 CPU 路径、`GPUQVIZ_BACKEND` 环境变量、GL 3.3→3.2 降级链、CI 无 GPU 门禁
 - [x] Jupyter 交互集成：`gpuqviz.show(qc)` 一行代码内嵌 3D 播放器（断网可用），大 payload 自动降级，`as_video=True` 渲染视频内嵌
 - [x] 交互式电路图：`export_html(circuit=qc)` / `show(qc)` 自动绘制 SVG 量子电路图，与 Bloch 球双向联动（播放高亮当前门 / 点击门跳转）
+- [x] 内置算法库 + CLI demo：12 个经典量子算法（Bell/GHZ/Grover/QFT/QPE/Deutsch-Jozsa/Bernstein-Vazirani/隐形传态/超密编码/Simon/量子游走/叠加态），`gpuqviz demo --algo grover` 一行命令演示，支持 qiskit/pyqpanda 引擎切换
 - [ ] CUDA-GL interop 零拷贝读回（当前 pinned memory）
 - [ ] QASM 电路文件直接输入
 - [ ] 更多国内模拟器适配（QPilotMachine / QCloud 等）
+- [ ] 变分算法（VQE/QAOA）与 Shor/HHL 等大规模算法
 
 ## License
 

@@ -6,6 +6,9 @@ from .api import render, render_bloch_video, render_frame, render_heatmap_video 
 from .env import report_env  # noqa: E401
 from .export_html import export_html  # noqa: E401
 
+# 算法库子模块（惰性加载，不依赖 qiskit/pyqpanda）
+from . import algorithms  # noqa: E401
+
 
 def show(*args, **kwargs):
     """Jupyter 交互集成：notebook 中一行代码内嵌 3D 播放器。
@@ -18,4 +21,4 @@ def show(*args, **kwargs):
 
 
 __all__ = ["__version__", "report_env", "render_bloch_video", "render_heatmap_video",
-           "render", "render_frame", "export_html", "show"]
+           "render", "render_frame", "export_html", "show", "algorithms"]

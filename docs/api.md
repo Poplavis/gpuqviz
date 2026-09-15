@@ -110,3 +110,52 @@ Jupyter 交互集成：一行代码在 notebook 中内嵌 3D 播放器。
 
 `show(circuit=None, states=None, scene=None, ...)`：notebook 中一行代码内嵌 3D 播放器，
 非 notebook 回退写 HTML 文件。详见顶层函数小节。
+
+## 内置算法库（gpuqviz.algorithms）
+
+12 个经典量子算法电路构建器，每个函数接受 `engine="qiskit"|"pyqpanda"|"numpy"` 参数：
+
+| 函数 | 签名 | 默认 qubit | 说明 |
+|---|---|---|---|
+| `bell()` | `bell(engine="qiskit")` | 2 | Bell 态 \|Φ+⟩ |
+| `ghz()` | `ghz(n=3, engine="qiskit")` | 3 | GHZ 纠缠态 |
+| `superposition()` | `superposition(n=3, engine="qiskit")` | 3 | 均匀叠加态 |
+| `grover()` | `grover(n=3, marked=0b101, iterations=None, engine="qiskit")` | 3 | Grover 搜索 |
+| `qft()` | `qft(n=3, inverse=False, engine="qiskit")` | 3 | 量子傅里叶变换 |
+| `phase_estimation()` | `phase_estimation(n_count=3, theta=0.375, engine="qiskit")` | 4 | 量子相位估计 |
+| `deutsch_jozsa()` | `deutsch_jozsa(oracle_type="balanced", n=3, engine="qiskit")` | 4 | DJ 算法 |
+| `bernstein_vazirani()` | `bernstein_vazirani(secret="101", engine="qiskit")` | 3 | BV 算法 |
+| `teleportation()` | `teleportation(engine="qiskit", prepare_state="rx")` | 3 | 量子隐形传态 |
+| `superdense()` | `superdense(message="11", engine="qiskit")` | 2 | 超密编码 |
+| `simon()` | `simon(s="01", n=None, engine="qiskit")` | 4 | Simon 算法 |
+| `quantum_walk()` | `quantum_walk(n=3, steps=3, engine="qiskit")` | 3 | 量子随机游走 |
+
+注册表 API：
+
+- `ALGORITHM_REGISTRY: dict[str, AlgorithmSpec]` — name → spec（含 description/builder/default_n_qubits/category）
+- `get_algorithm(name) -> AlgorithmSpec` — 按名获取，不存在抛 KeyError
+- `list_algorithms() -> str` — 格式化表格（供 CLI `--list` 输出）
+
+pyqpanda 引擎的算法通过 `<algo>_pyqpanda(qubits, machine, ...)` 函数构建，需传入已分配的 qubit 列表和 QVM 实例。
+
+## CLI demo 命令
+
+```bash
+gpuqviz demo --algo <name> [选项]
+```
+
+| 选项 | 默认 | 说明 |
+|---|---|---|
+| `--algo` / `-a` | 必填 | 算法名（见 `--list`） |
+| `--list` | False | 列出全部算法并退出 |
+| `--format` / `-f` | `html` | `html`（交互播放器）/ `mp4`（视频）/ `png`（静态帧） |
+| `--engine` / `-e` | `qiskit` | `qiskit` / `pyqpanda` |
+| `--n-qubits` / `-n` | 算法默认 | 量子比特数 |
+| `--out` / `-o` | `out/<algo>.<ext>` | 输出路径 |
+| `--steps` | 120 | 关键帧数 |
+| `--fps` | 60.0 | 输出帧率 |
+| `--seconds` | steps/30 | 视频时长（秒） |
+| `--style` | `dark` | dark/light/bw/poster |
+| `--trail` | False | Bloch 球轨迹拖尾 |
+| `--time` / `-t` | 0.5 | PNG 归一化时刻 t∈[0,1] |
+| `--title` | 算法名 | 标题 |

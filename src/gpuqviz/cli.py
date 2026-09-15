@@ -131,5 +131,193 @@ def frame(scene_file: Path = typer.Option(None, "--scene", exists=True, readable
     typer.echo(f"frame -> {path}")
 
 
+@app.command()
+def demo(
+    algo: str = typer.Option(None, "--algo", "-a",
+                             help="算法名（bell/ghz/grover/qft/phase_estimation/"
+                                  "deutsch_jozsa/bernstein_vazirani/teleportation/"
+                                  "superdense/simon/quantum_walk/superposition）"),
+    list_algos: bool = typer.Option(False, "--list",
+                                    help="列出所有可用算法并退出"),
+    fmt: str = typer.Option("html", "--format", "-f",
+                            help="输出格式：html（交互播放器）/ mp4（视频）/ png（静态帧）"),
+    engine: str = typer.Option("qiskit", "--engine", "-e",
+                               help="模拟引擎：qiskit / pyqpanda"),
+    n_qubits: int = typer.Option(None, "--n-qubits", "-n",
+                                 help="量子比特数（部分算法可调，默认取算法默认值）"),
+    out: Path = typer.Option(None, "--out", "-o",
+                             help="输出路径（默认 out/<algo>.<ext>）"),
+    steps: int = typer.Option(120, "--steps",
+                              help="关键帧数"),
+    fps: float = typer.Option(60.0, "--fps"),
+    seconds: float = typer.Option(None, "--seconds",
+                                  help="视频时长（秒），默认 steps/30"),
+    style: str = typer.Option("dark", "--style",
+                              help="dark/light/bw/poster"),
+    trail: bool = typer.Option(False, "--trail",
+                               help="Bloch 球轨迹拖尾"),
+    time: float = typer.Option(0.5, "--time", "-t", min=0.0, max=1.0,
+                               help="PNG 静态帧归一化时刻 t∈[0,1]"),
+    title: str = typer.Option(None, "--title",
+                              help="播放器/视频标题（默认算法名）"),
+) -> None:
+    """一行命令演示内置量子算法可视化。
+
+    \b
+    示例::
+
+        gpuqviz demo --list
+        gpuqviz demo --algo grover
+        gpuqviz demo --algo qft --format mp4 --engine qiskit
+        gpuqviz demo --algo bell --format png --time 0.5
+        gpuqviz demo --algo ghz --n-qubits 4 --steps 180 --trail
+    """
+    from .algorithms import ALGORITHM_REGISTRY, list_algorithms as _la
+
+    # --list：打印算法列表并退出
+    if list_algos:
+        typer.echo(_la())
+        raise typer.Exit()
+
+    if algo is None:
+        typer.echo("需要指定 --algo <name>，或用 --list 查看可用算法")
+        raise typer.Exit(1)
+
+    if algo not in ALGORITHM_REGISTRY:
+        typer.echo(f"未知算法 {algo!r}。可用算法：")
+        typer.echo(_la())
+        raise typer.Exit(1)
+
+    spec = ALGORITHM_REGISTRY[algo]
+    fmt = fmt.lower()
+    if fmt not in ("html", "mp4", "png"):
+        typer.echo(f"不支持的格式 {fmt!r}；可选 html / mp4 / png")
+        raise typer.Exit(1)
+
+    # 确定输出路径
+    if out is None:
+        ext = {"html": "html", "mp4": "mp4", "png": "png"}[fmt]
+        out = Path(f"out/{algo}.{ext}")
+    if title is None:
+        title = algo
+
+    # ---- 构建电路 ----
+    builder_kwargs: dict = {}
+    if n_qubits is not None:
+        # 按算法签名传参
+        if algo == "bell":
+            builder_kwargs = {}  # Bell 固定 2 qubit
+        elif algo == "superdense":
+            builder_kwargs = {}  # 固定 2 qubit
+        elif algo == "teleportation":
+            builder_kwargs = {}  # 固定 3 qubit
+        elif algo in ("ghz", "superposition", "qft"):
+            builder_kwargs = {"n": n_qubits}
+        elif algo == "grover":
+            builder_kwargs = {"n": n_qubits}
+        elif algo == "phase_estimation":
+            builder_kwargs = {"n_count": n_qubits - 1} if n_qubits > 1 else {}
+        elif algo == "deutsch_jozsa":
+            builder_kwargs = {"n": n_qubits - 1} if n_qubits > 1 else {}
+        elif algo == "bernstein_vazirani":
+            # secret 字符串长度 = n_qubits - 1（减去辅助 qubit）
+            builder_kwargs = {"secret": "1" * (n_qubits - 1)} if n_qubits > 1 else {}
+        elif algo == "simon":
+            builder_kwargs = {"s": "01" * ((n_qubits // 2) or 1)}
+        elif algo == "quantum_walk":
+            builder_kwargs = {"n": max(1, n_qubits - 1)}
+
+    # ---- qiskit 引擎 ----
+    if engine == "qiskit":
+        try:
+            import qiskit  # noqa: F401
+        except ImportError:
+            typer.echo("qiskit 未安装：pip install gpuqviz[qiskit]")
+            raise typer.Exit(1)
+
+        circuit = spec.builder(engine="qiskit", **builder_kwargs)
+
+        if fmt == "html":
+            from .export_html import export_html as _export
+            path = _export(circuit=circuit, steps=steps, fps=fps,
+                          duration=seconds, title=title, out=out)
+        elif fmt == "mp4":
+            from .api import render_bloch_video as _render
+            path = _render(circuit=circuit, steps=steps, fps=fps,
+                          out=out, style=style, trail=trail, seconds=seconds)
+        else:  # png
+            from .api import render_frame as _render_frame
+            path = _render_frame(circuit=circuit, t=time, out=out,
+                                scale=2, style=style)
+        typer.echo(f"demo [{algo}] -> {path}")
+
+    # ---- pyqpanda 引擎 ----
+    elif engine == "pyqpanda":
+        try:
+            import pyqpanda  # noqa: F401
+        except ImportError:
+            typer.echo("pyqpanda 未安装：pip install gpuqviz[pyqpanda]")
+            raise typer.Exit(1)
+
+        # pyqpanda 需要 machine 和 qubits
+        from pyqpanda import CPUQVM
+        from .algorithms import (
+            bell_pyqpanda, ghz_pyqpanda, superposition_pyqpanda,
+            grover_pyqpanda, teleportation_pyqpanda, superdense_pyqpanda,
+        )
+
+        qm = CPUQVM()
+        qm.init_qvm()
+        try:
+            # 确定总 qubit 数
+            n_total = n_qubits if n_qubits else spec.default_n_qubits
+            q = qm.qAlloc_many(n_total)
+
+            # 构建电路（仅支持有 pyqpanda 实现的算法）
+            pyq_builders = {
+                "bell": bell_pyqpanda,
+                "ghz": ghz_pyqpanda,
+                "superposition": superposition_pyqpanda,
+                "grover": grover_pyqpanda,
+                "teleportation": teleportation_pyqpanda,
+                "superdense": superdense_pyqpanda,
+            }
+            if algo not in pyq_builders:
+                typer.echo(
+                    f"算法 {algo!r} 暂不支持 pyqpanda 引擎"
+                    f"（支持：{sorted(pyq_builders)}）"
+                )
+                raise typer.Exit(1)
+
+            if algo == "grover":
+                marked = builder_kwargs.get("marked", 0b101)
+                iters = builder_kwargs.get("iterations")
+                circuit = pyq_builders[algo](q, qm, marked=marked, iterations=iters)
+            else:
+                circuit = pyq_builders[algo](q, qm)
+
+            if fmt == "html":
+                from .export_html import export_html as _export
+                path = _export(circuit=circuit, steps=steps, fps=fps,
+                              duration=seconds, title=title, out=out,
+                              machine=qm)
+            elif fmt == "mp4":
+                from .api import render_bloch_video as _render
+                path = _render(circuit=circuit, steps=steps, fps=fps,
+                              out=out, style=style, trail=trail,
+                              seconds=seconds, machine=qm)
+            else:  # png
+                from .api import render_frame as _render_frame
+                path = _render_frame(circuit=circuit, t=time, out=out,
+                                    scale=2, style=style, machine=qm)
+            typer.echo(f"demo [{algo}] (pyqpanda) -> {path}")
+        finally:
+            qm.finalize()
+
+    else:
+        typer.echo(f"不支持的引擎 {engine!r}；可选 qiskit / pyqpanda")
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()
