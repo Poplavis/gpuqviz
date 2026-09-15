@@ -126,6 +126,11 @@ export_html(circuit=qc, out="out/viewer.html", title="贝尔态演化")
 0.25×~4× 倍速、时间轴拖动（←/→ 逐帧步进），底部实时显示当前量子状态——
 每个基态的概率条、振幅与相位，以及各 qubit 的 Bloch 向量。
 
+输入为 `circuit` 时，播放器顶部自动绘制 **SVG 量子电路图**，与 Bloch 球双向联动：
+播放时当前正在执行的门以橙色高亮；点击电路图中的任意门可跳转到该门对应的播放时刻，
+Bloch 球与状态面板同步更新。支持的门符号：单量子门方框、受控门（控制点 + ⊕ 目标）、
+SWAP（× 符号）、ISWAP（跨行方框）、参数门（`RX(π/2)` 等标签）。
+
 ### Jupyter 交互集成
 
 ```python
@@ -271,6 +276,7 @@ python scripts/gen_font_atlas.py   # 重新烘焙字体图集
 - [x] 布局/样式系统 + 出版级静态图：`cols`/`figsize` 参数、`bw`（论文黑白）/`poster` 预设、`style_overrides` 覆盖；`render_frame()` 单帧 PNG 导出（scale 超采样抗锯齿，等效 300dpi）
 - [x] CPU/无 GL 环境可移植性：numba 加速软光栅（CPU bell 116s→6s，19×）、完整 `HeatmapTrack`/`PhaseDisc`/PIL 文字 CPU 路径、`GPUQVIZ_BACKEND` 环境变量、GL 3.3→3.2 降级链、CI 无 GPU 门禁
 - [x] Jupyter 交互集成：`gpuqviz.show(qc)` 一行代码内嵌 3D 播放器（断网可用），大 payload 自动降级，`as_video=True` 渲染视频内嵌
+- [x] 交互式电路图：`export_html(circuit=qc)` / `show(qc)` 自动绘制 SVG 量子电路图，与 Bloch 球双向联动（播放高亮当前门 / 点击门跳转）
 - [ ] CUDA-GL interop 零拷贝读回（当前 pinned memory）
 - [ ] QASM 电路文件直接输入
 - [ ] 更多国内模拟器适配（QPilotMachine / QCloud 等）

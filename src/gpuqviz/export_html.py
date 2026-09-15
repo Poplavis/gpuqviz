@@ -7,12 +7,13 @@
 from __future__ import annotations
 
 import json
+import math
 from importlib import resources
 from pathlib import Path
 
 import numpy as np
 
-from .adapters import to_key_states
+from .adapters import to_key_states, qiskit_to_gates
 from .evolve import bloch_vectors
 
 # 状态面板/热图复杂度上限（与 DESIGN.md 第 10 节一致）
@@ -27,9 +28,113 @@ def _load_text(ref) -> str:
     return ref.read_text(encoding="utf-8")
 
 
+# --------------------------------------------------------------------------- #
+# 电路图元数据构建（供交互式播放器在浏览器端绘制 SVG 电路图 + 与 Bloch 联动）
+# --------------------------------------------------------------------------- #
+
+def _gate_label(gate) -> str:
+    """Gate → 浏览器端显示标签（含参数格式化）。"""
+    name = gate.name.upper()
+    if name == "UNITARY":
+        return "U"
+    if name == "BARRIER":
+        return "┊"
+    if gate.params:
+        parts = []
+        for p in gate.params:
+            if abs(p) < 1e-10:
+                parts.append("0")
+            elif abs(p - math.pi) < 1e-10:
+                parts.append("π")
+            elif abs(p + math.pi) < 1e-10:
+                parts.append("-π")
+            elif abs(p - math.pi / 2) < 1e-10:
+                parts.append("π/2")
+            elif abs(p + math.pi / 2) < 1e-10:
+                parts.append("-π/2")
+            elif abs(p - 2 * math.pi) < 1e-10:
+                parts.append("2π")
+            elif abs(p * 4 / math.pi - round(p * 4 / math.pi)) < 1e-6:
+                num = round(p * 4 / math.pi)
+                if num == 1:
+                    parts.append("π/4")
+                elif num == -1:
+                    parts.append("-π/4")
+                else:
+                    parts.append(f"{num}π/4")
+            else:
+                parts.append(f"{p:.2f}")
+        return f"{name}({','.join(parts)})"
+    return name
+
+
+def _build_circuit_info(circuit, steps: int, duration: float,
+                        machine=None) -> dict | None:
+    """从 qiskit/pyqpanda 电路提取门级元数据，供浏览器端绘制 SVG 电路图。
+
+    返回 None 表示无法提取（如纯 states 输入、pyqpanda 翻译失败）——
+    此时播放器隐藏电路面板，其余功能不受影响。
+    """
+    try:
+        n_qubits, gates = qiskit_to_gates(circuit)
+    except Exception:
+        return None
+
+    # 过滤 BARRIER，保留可见门
+    visible = [g for g in gates if g.name.upper() != "BARRIER"]
+    n_ops = len(visible)
+    if n_ops == 0:
+        return None
+
+    gate_list = []
+    for col, g in enumerate(visible):
+        gate_list.append({
+            "name": g.name.upper(),
+            "targets": list(g.targets),
+            "controls": list(g.controls),
+            "params": [float(p) for p in g.params],
+            "label": _gate_label(g),
+            "col": col,
+        })
+
+    # 每个关键帧对应的"正在执行"的门索引
+    # keyframe i → gate index = min(floor(i/(n_keys-1)*n_ops), n_ops-1)
+    n_keys = steps
+    active_gates = []
+    for i in range(n_keys):
+        if n_keys <= 1:
+            idx = 0
+        else:
+            idx = min(int(math.floor(i / (n_keys - 1) * n_ops)), n_ops - 1)
+        active_gates.append(idx)
+
+    # 每个门的跳转时间（秒），均匀分布在 [0, duration]
+    if n_ops == 1:
+        gate_times = [0.0]
+    else:
+        gate_times = [j / (n_ops - 1) * duration for j in range(n_ops)]
+    # 确保首项为 0，末项不超过 duration
+    gate_times[0] = 0.0
+    if gate_times[-1] > duration:
+        gate_times[-1] = duration
+
+    return {
+        "n_qubits": n_qubits,
+        "n_ops": n_ops,
+        "gates": gate_list,
+        "active_gates": active_gates,
+        "gate_times": gate_times,
+    }
+
+
 def build_payload(states: list[np.ndarray], fps: float, duration: float,
-                  title: str, colormap: str = "viridis") -> dict:
-    """态矢量关键帧序列 → 播放器 payload（纯 JSON 可序列化 dict）。"""
+                  title: str, colormap: str = "viridis",
+                  circuit_info: dict | None = None) -> dict:
+    """态矢量关键帧序列 → 播放器 payload（纯 JSON 可序列化 dict）。
+
+    circuit_info 非空时附加 payload["circuit"]，浏览器端据此绘制
+    SVG 电路图并与 Bloch 球联动。
+    """
     arrs = [np.asarray(getattr(s, "data", s)).reshape(-1).astype(np.complex128)
             for s in states]
     dims = {a.shape[0] for a in arrs}
@@ -47,7 +152,7 @@ def build_payload(states: list[np.ndarray], fps: float, duration: float,
     if hasattr(bloch, "get"):
         bloch = bloch.get()
 
-    return {
+    payload = {
         "meta": {
             "title": title,
             "fps": float(fps),
@@ -61,6 +166,9 @@ def build_payload(states: list[np.ndarray], fps: float, duration: float,
         "states_im": [[float(x.imag) for x in a] for a in arrs],
         "bloch": [[[float(c) for c in vec] for vec in frame] for frame in bloch],
     }
+    if circuit_info is not None:
+        payload["circuit"] = circuit_info
+    return payload
 
 
 def export_html(circuit=None, states=None, steps: int = 120, fps: float = 60.0,
@@ -74,14 +182,32 @@ def export_html(circuit=None, states=None, steps: int = 120, fps: float = 60.0,
     if (circuit is None) == (states is None):
         raise ValueError("exactly one of `circuit` or `states` must be provided")
 
+    circuit_info = None
     if circuit is not None:
-        key_states = to_key_states(circuit, steps=steps, machine=machine)
+        # 优先用 evolve_gates + sample_snapshots 路径采样，
+        # 使每个关键帧天然对应一个门（门-帧精确对齐，电路图联动无歧义）
+        circuit_info = _build_circuit_info(circuit, steps, duration or 0.0,
+                                           machine=machine)
+        if circuit_info is not None:
+            from .circuits import evolve_gates, sample_snapshots
+            _, gates = qiskit_to_gates(circuit)
+            snapshots = evolve_gates(circuit_info["n_qubits"], gates)
+            key_states = sample_snapshots(snapshots, steps)
+        else:
+            # 回退到原有采样路径（pyqpanda / 翻译失败）
+            key_states = to_key_states(circuit, steps=steps, machine=machine)
     else:
         key_states = [np.asarray(getattr(s, "data", s)).reshape(-1) for s in states]
+
     if duration is None:
         duration = steps / 30.0
+        if circuit_info is not None:
+            # 重新计算 gate_times（duration 从 None 推断出来了）
+            circuit_info = _build_circuit_info(circuit, steps, duration,
+                                               machine=machine)
 
-    payload = build_payload(key_states, fps, duration, title, colormap)
+    payload = build_payload(key_states, fps, duration, title, colormap,
+                            circuit_info=circuit_info)
     payload_json = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
 
     assets = _assets()

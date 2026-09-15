@@ -1,5 +1,31 @@
 # Changelog
 
+## 未发布（交互式电路图 + Bloch 球联动）
+
+- `export_html(circuit=qc)` / `show(qc)` 自动在播放器顶部绘制 **SVG 量子电路图**，
+  与 3D Bloch 球双向联动
+  - 浏览器端纯 JavaScript 生成 SVG（无外部电路绘制库依赖），支持单量子门方框、
+    受控门（控制点 + ⊕ 目标符）、SWAP（× 符号）、ISWAP（跨行方框）、参数门标签
+    （`RX(π/2)` 等角度格式化）、UNITARY（U 方框）
+  - 播放时自动高亮当前正在执行的门（橙色 `--accent2`）；点击电路图中的门
+    跳转到该门对应时刻，Bloch 球与状态面板同步更新
+  - 门-关键帧精确对齐：`circuit` 输入时改用 `evolve_gates` + `sample_snapshots`
+    路径采样（与 `sample_circuit` 数值一致），每个关键帧天然对应一个门
+  - payload 新增 `circuit` 字段：`{n_qubits, n_ops, gates[], active_gates[],
+    gate_times[]}`（`export_html._build_circuit_info`）
+  - 优雅降级：states-only 输入 / pyqpanda 翻译失败时隐藏电路面板，其余功能不受
+    影响；降级模式（>8MB）保留 `circuit` 字段（体积小）
+- `viewer_template.html`：新增 `#circuitPanel` DOM 节点 + 电路图 SVG 样式
+  （wire / gate-box / control-dot / target-circle / swap-cross / active 高亮）
+- `viewer.js`：新增 `buildCircuitDiagram()` / `updateCircuitHighlight()` /
+  `seekToGate()`，`Init` 构建电路图，`renderFrame` 每帧更新高亮
+- `jupyter.py`：`show(circuit=qc)` 路径同步使用 `evolve_gates` 采样 +
+  `circuit_info` 附加 payload
+- 测试：`tests/test_circuit_viewer.py`（18 例：门标签格式化、Bell/GHZ 门元数据、
+  active_gates/gate_times 映射、HTML 包含电路图元素、降级保留 circuit、
+  viewer.js 函数存在、show() 集成）
+- 文档：README 交互式播放器段落增述电路图联动，Roadmap 勾选
+
 ## 未发布（S9 Jupyter 交互集成）
 
 - `gpuqviz.show(circuit=None, states=None, scene=None, steps=60, out=None,

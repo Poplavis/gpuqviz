@@ -22,8 +22,8 @@ from pathlib import Path
 
 import numpy as np
 
-from .export_html import build_payload, export_html
-from .adapters import to_key_states
+from .export_html import build_payload, export_html, _build_circuit_info
+from .adapters import to_key_states, qiskit_to_gates
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +114,7 @@ def show(circuit=None, states=None, scene=None, steps: int = 60,
     colormap, style, codec, quality, backend 等）。
     """
     # ---- 解析输入 → key_states ----
+    circuit_info = None
     if scene is not None:
         base_dir = Path(kwargs.get("states_dir", "."))
         scene.validate_states(base_dir=base_dir)
@@ -125,7 +126,18 @@ def show(circuit=None, states=None, scene=None, steps: int = 60,
         duration = scene.duration
     elif circuit is not None:
         machine = kwargs.get("machine")
-        key_states = to_key_states(circuit, steps=steps, machine=machine)
+        # 优先用 evolve_gates + sample_snapshots 路径采样（门-帧精确对齐）
+        circuit_info = _build_circuit_info(circuit, steps,
+                                           kwargs.get("duration", steps / 30.0),
+                                           machine=machine)
+        if circuit_info is not None:
+            from .circuits import evolve_gates, sample_snapshots
+            _, gates = qiskit_to_gates(circuit)
+            snapshots = evolve_gates(circuit_info["n_qubits"], gates)
+            key_states = sample_snapshots(snapshots, steps)
+        else:
+            key_states = to_key_states(circuit, steps=steps, machine=machine)
+            circuit_info = None
         title = kwargs.get("title", "量子态演化")
         fps = kwargs.get("fps", 60.0)
         duration = kwargs.get("duration", steps / 30.0)
@@ -144,7 +156,8 @@ def show(circuit=None, states=None, scene=None, steps: int = 60,
     # ---- HTML 内嵌路径 ----
     colormap = kwargs.get("colormap", "viridis")
     payload = build_payload(key_states, fps=fps, duration=duration,
-                            title=title, colormap=colormap)
+                            title=title, colormap=colormap,
+                            circuit_info=circuit_info)
 
     # payload 降级
     if _payload_size(payload) > _PAYLOAD_LIMIT:

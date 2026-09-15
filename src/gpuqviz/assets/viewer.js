@@ -69,6 +69,154 @@ window.GPUQVIZ_VIEWER = (function () {
     const probRows = document.getElementById("probRows");
     const blochList = document.getElementById("blochList");
 
+    // --- 电路图 SVG 构建函数（与 Bloch 球联动） ---
+    const SVG_NS = "http://www.w3.org/2000/svg";
+    let gateEls = [];      // 每个门对应的 <g> 元素引用
+    let circuitPanelEl = document.getElementById("circuitPanel");
+
+    function svgEl(tag, attrs) {
+      const el = document.createElementNS(SVG_NS, tag);
+      if (attrs) for (const k in attrs) el.setAttribute(k, attrs[k]);
+      return el;
+    }
+
+    function buildCircuitDiagram() {
+      if (!D.circuit) { circuitPanelEl.classList.add("hidden"); return; }
+
+      const ci = D.circuit;
+      const nCQ = ci.n_qubits, nOps = ci.n_ops;
+      const colW = 60, rowH = 40, ml = 50, mt = 18, boxS = 28;
+
+      const svgW = ml + (nOps + 1) * colW;
+      const svgH = mt + nCQ * rowH + 10;
+      const svg = svgEl("svg", { id: "circuitSvg", width: svgW, height: svgH });
+      circuitPanelEl.innerHTML = "";
+      circuitPanelEl.appendChild(svg);
+      circuitPanelEl.classList.remove("hidden");
+
+      // qubit 标签 + 水平量子线
+      const yOf = (q) => mt + q * rowH + rowH / 2;
+      for (let q = 0; q < nCQ; q++) {
+        const y = yOf(q);
+        svg.appendChild(svgEl("text", {
+          x: ml - 8, y: y + 4, class: "qubit-label",
+        })).textContent = "q" + q;
+        svg.appendChild(svgEl("line", {
+          x1: ml, y1: y, x2: svgW - 10, y2: y, class: "wire",
+        }));
+      }
+
+      gateEls = [];
+      const isControlled = (g) => g.controls && g.controls.length > 0;
+
+      for (let col = 0; col < nOps; col++) {
+        const g = ci.gates[col];
+        const cx = ml + (col + 1) * colW;
+        const grp = svgEl("g", { class: "gate-group", "data-gate-idx": col });
+        svg.appendChild(grp);
+
+        const allQ = [...(g.targets || []), ...(g.controls || [])];
+
+        if (g.name === "SWAP") {
+          // 两个 × 符号 + 竖线
+          for (const q of g.targets) {
+            const y = yOf(q);
+            grp.appendChild(svgEl("line", {
+              x1: cx - 6, y1: y - 6, x2: cx + 6, y2: y + 6, class: "swap-cross",
+            }));
+            grp.appendChild(svgEl("line", {
+              x1: cx - 6, y1: y + 6, x2: cx + 6, y2: y - 6, class: "swap-cross",
+            }));
+          }
+          if (g.targets.length === 2) {
+            grp.appendChild(svgEl("line", {
+              x1: cx, y1: yOf(g.targets[0]), x2: cx, y2: yOf(g.targets[1]),
+              class: "control-line",
+            }));
+          }
+        } else if (isControlled(g)) {
+          // 受控门：控制点 + 竖线 + 目标符号
+          for (const cq of g.controls) {
+            grp.appendChild(svgEl("circle", {
+              cx: cx, cy: yOf(cq), r: 4, class: "control-dot",
+            }));
+          }
+          const target = g.targets[0];
+          const ty = yOf(target);
+          const isPlusTarget = ["CX", "CNOT", "CY", "CCX", "TOFFOLI"].includes(g.name);
+          if (isPlusTarget) {
+            grp.appendChild(svgEl("circle", {
+              cx: cx, cy: ty, r: 10, class: "target-circle",
+            }));
+            grp.appendChild(svgEl("line", {
+              x1: cx - 10, y1: ty, x2: cx + 10, y2: ty, class: "target-cross",
+            }));
+            grp.appendChild(svgEl("line", {
+              x1: cx, y1: ty - 10, x2: cx, y2: ty + 10, class: "target-cross",
+            }));
+          } else {
+            grp.appendChild(svgEl("rect", {
+              x: cx - boxS / 2, y: ty - boxS / 2,
+              width: boxS, height: boxS, class: "gate-box",
+            }));
+            grp.appendChild(svgEl("text", {
+              x: cx, y: ty, class: "gate-label",
+            })).textContent = g.label;
+          }
+          // 竖线连接控制位到目标位
+          const minY = Math.min(...allQ.map(yOf));
+          const maxY = Math.max(...allQ.map(yOf));
+          grp.appendChild(svgEl("line", {
+            x1: cx, y1: minY, x2: cx, y2: maxY, class: "control-line",
+          }));
+        } else if (g.targets && g.targets.length > 1) {
+          // 多量子非受控门（如 ISWAP）：跨行方框
+          const minY = Math.min(...g.targets.map(yOf));
+          const maxY = Math.max(...g.targets.map(yOf));
+          const h = maxY - minY + boxS;
+          grp.appendChild(svgEl("rect", {
+            x: cx - boxS / 2, y: (minY + maxY) / 2 - h / 2,
+            width: boxS, height: h, class: "gate-box",
+          }));
+          grp.appendChild(svgEl("text", {
+            x: cx, y: (minY + maxY) / 2, class: "gate-label",
+          })).textContent = g.label;
+        } else {
+          // 单量子门：方框 + 标签
+          const q = g.targets[0] || 0;
+          const y = yOf(q);
+          grp.appendChild(svgEl("rect", {
+            x: cx - boxS / 2, y: y - boxS / 2,
+            width: boxS, height: boxS, class: "gate-box",
+          }));
+          grp.appendChild(svgEl("text", {
+            x: cx, y: y, class: "gate-label",
+          })).textContent = g.label;
+        }
+
+        // 点击跳转到该门对应的播放时刻
+        grp.style.cursor = "pointer";
+        grp.addEventListener("click", () => seekToGate(col));
+        gateEls.push(grp);
+      }
+    }
+
+    function updateCircuitHighlight(activeIdx) {
+      if (!gateEls.length) return;
+      for (let i = 0; i < gateEls.length; i++) {
+        if (i === activeIdx) gateEls[i].classList.add("active");
+        else gateEls[i].classList.remove("active");
+      }
+    }
+
+    function seekToGate(gateIdx) {
+      if (!D.circuit || gateIdx < 0 || gateIdx >= D.circuit.gate_times.length) return;
+      playing = false;
+      playBtn.textContent = "⏵";
+      t = D.circuit.gate_times[gateIdx];
+      renderFrame();
+    }
+
     // --- 状态面板构建 ---
     const rowEls = [];
     for (let i = 0; i < dim; i++) {
@@ -84,6 +232,9 @@ window.GPUQVIZ_VIEWER = (function () {
       probRows.appendChild(row);
       rowEls.push({ bar: row.querySelector(".bar"), nums: row.querySelector(".nums") });
     }
+
+    // --- 电路图 SVG 构建 ---
+    buildCircuitDiagram();
 
     // --- three.js 场景 ---
     const scene = new THREE.Scene();
@@ -237,6 +388,10 @@ window.GPUQVIZ_VIEWER = (function () {
       }
       st.bloch = bloch;
       updatePanel(st);
+
+      // 电路图高亮联动
+      const activeGateIdx = D.circuit ? D.circuit.active_gates[i] : -1;
+      updateCircuitHighlight(activeGateIdx);
 
       // 控件同步
       scrub.value = String(Math.round((t / total) * 1000));

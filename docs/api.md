@@ -35,6 +35,37 @@ Jupyter 交互集成：一行代码在 notebook 中内嵌 3D 播放器。
 
 惰性 import IPython：未装 IPython 时 `import gpuqviz` 不受影响，调用 `show()` 才报错。
 
+### `export_html(circuit=None, states=None, steps=120, fps=60.0, duration=None, title="量子态演化", out="out/viewer.html", colormap="viridis", embed_three=True, machine=None)`
+
+交互式 3D 播放器单文件 HTML 导出。
+
+- `circuit`（qiskit QuantumCircuit / pyqpanda QProg）与 `states`（态矢量序列）二选一
+- `embed_three=True`：内联 three.js（断网可用，文件 ~600KB+）；`False` 用 CDN
+- **电路图联动**：`circuit` 输入时自动在播放器顶部绘制 SVG 量子电路图
+  - payload 新增 `circuit` 字段：`{n_qubits, n_ops, gates[], active_gates[], gate_times[]}`
+  - 播放时高亮当前门；点击门跳转到该门时刻，Bloch 球同步更新
+  - states-only / 翻译失败时隐藏电路面板（优雅降级）
+
+## payload 字段（`export_html.build_payload`）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `meta` | dict | `title` / `fps` / `duration` / `n_qubits` / `n_keys` / `colormap` / `generated_by` |
+| `states_re` | list[list[float]] \| null | 关键帧实部（降级时为 null） |
+| `states_im` | list[list[float]] \| null | 关键帧虚部（降级时为 null） |
+| `bloch` | list[list[list[float]]] | 关键帧 Bloch 向量 `(n_keys, n_qubits, 3)` |
+| `circuit` | dict \| 省略 | 电路图元数据（仅 `circuit` 输入时存在） |
+
+`circuit` 子字段：
+
+| 子字段 | 类型 | 说明 |
+|---|---|---|
+| `n_qubits` | int | 量子位数 |
+| `n_ops` | int | 可见门数（已过滤 BARRIER） |
+| `gates` | list[dict] | `{name, targets, controls, params, label, col}` |
+| `active_gates` | list[int] | 每个关键帧对应的活跃门索引（长度 = n_keys） |
+| `gate_times` | list[float] | 每个门的跳转时间（秒，长度 = n_ops） |
+
 ## Scene 模型（gpuqviz.scene）
 
 | 类 | 字段（摘要） |
