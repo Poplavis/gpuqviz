@@ -37,8 +37,13 @@ jobs:
         run: |
           python -m pytest tests -q -k "not gpu_only" --tb=short 2>&1 | tee pytest_output.txt
           exit ${PIPESTATUS[0]}
-      - name: Upload test log (failure diagnostics)
+      - name: Failure diagnostics → step summary
         if: failure()
+        run: |
+          echo "### pytest 失败摘要（${{ matrix.os }}）" >> "$GITHUB_STEP_SUMMARY"
+          tail -n 60 pytest_output.txt >> "$GITHUB_STEP_SUMMARY" || true
+      - name: Upload test log (failure diagnostics)
+        if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
           name: pytest-${{ matrix.os }}
