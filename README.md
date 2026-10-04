@@ -58,6 +58,7 @@ gpuqviz 把整条流水线搬到 GPU 上：**离屏 GLSL 渲染 → 显存直取
 - 🌊 **噪声开放系统**：Kraus 通道库（depolarizing / 弛豫 / 热弛豫，Aer 同约定），密度矩阵演化 + Hinton 图
 - 🧪 **条件门与中途测量**：确定性经典反馈分支演化，隐形传态四分支对拍
 - 🧬 **MPS 规模化**：20+ qubit χ 截断演化（SWAP 路由），约化分析量直喂渲染层
+- 📐 **矢量输出 + LaTeX**：`render_svg` 出版级 SVG/PDF；`TextOverlay(latex=True)` mathtext 标注
 - ⚙️ **参数化扫参**：符号参数模板 + 沿参数扫描全部分析量（VQE/QAOA 轨迹）
 
 ## 安装
@@ -444,7 +445,7 @@ python scripts/gen_font_atlas.py   # 重新烘焙字体图集
 - [x] QASM 电路文件直接输入
 - [ ] 更多国内模拟器适配（QPilotMachine / QCloud 等）
 - [ ] Shor/HHL 等大规模算法演示
-- [x] 矢量输出（SVG/PDF）与 LaTeX 标注
+- [x] 矢量输出（SVG/PDF）：`render_svg(scene, out="fig.svg")` 出版级矢量图（布洛赫球扁平示意 + 直方图/纠缠图/Hinton/热图网格真矢量），PDF 经 cairosvg；LaTeX 标注：`TextOverlay(latex=True, text="$\psi...$")` mathtext 排版（GL 纹理/CPU 合成/SVG 嵌入三路径），CJK 字体回退链
 
 ## License
 
