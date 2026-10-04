@@ -441,7 +441,7 @@ python scripts/gen_font_atlas.py   # 重新烘焙字体图集
 - [x] 内置算法库 + CLI demo：12 个经典量子算法（Bell/GHZ/Grover/QFT/QPE/Deutsch-Jozsa/Bernstein-Vazirani/隐形传态/超密编码/Simon/量子游走/叠加态），`gpuqviz demo --algo grover` 一行命令演示，支持 qiskit/pyqpanda 引擎切换
 - [x] **专业轨道 0.5.0**：约定契约 + 对拍体系（qiskit/Aer，1e-10/1e-6）、测量统计（GPU 采样 n=24 亚秒）、纠缠分析、噪声开放系统（Hinton）、参数化扫参、条件门/中途测量、ProVisualizer、MPS 后端（20+ qubit χ 截断）、直方图/纠缠图/Hinton 渲染器与 LOD、Jupyter 双轨（.figure/.widget）——见 [docs/development-plan.md](docs/development-plan.md)
 - [ ] CUDA-GL interop 零拷贝读回（当前 pinned memory）
-- [ ] QASM 电路文件直接输入
+- [x] QASM 电路文件直接输入
 - [ ] 更多国内模拟器适配（QPilotMachine / QCloud 等）
 - [ ] Shor/HHL 等大规模算法演示
 - [ ] 矢量输出（SVG/PDF）与 LaTeX 标注
