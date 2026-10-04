@@ -4,9 +4,10 @@
 
 **GPU 加速的量子态演化可视化与视频渲染库**
 
-把 qiskit 电路一键渲染成布洛赫球与概率热图动画 —— matplotlib 方案 30 分钟的活，这里 20 秒干完。
+普通用户：把 qiskit 电路一键渲染成布洛赫球与概率热图动画 —— matplotlib 方案 30 分钟的活，这里 20 秒干完。
+专业用户：测量统计、纠缠分析、噪声开放系统、条件门、参数化扫参、20+ qubit MPS —— 每个数字可对拍核对。
 
-[![PyPI](https://img.shields.io/badge/pypi-0.1.0-blue)](https://pypi.org/project/gpuqviz/)
+[![PyPI](https://img.shields.io/pypi/v/gpuqviz)](https://pypi.org/project/gpuqviz/)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green)](https://github.com/Poplavis/gpuqviz/blob/main/LICENSE)
 [![CI](https://img.shields.io/badge/CI-GitHub_Actions-informational)](https://github.com/Poplavis/gpuqviz/actions/workflows/ci.yml)
@@ -52,6 +53,12 @@ gpuqviz 把整条流水线搬到 GPU 上：**离屏 GLSL 渲染 → 显存直取
 - 🔬 **qiskit 原生衔接**：直接吃 `QuantumCircuit` / `Statevector`，qiskit 仅为可选依赖
 - 🐼 **pyqpanda 兼容**：本源量子 `QProg` 经 ORIGINIR 转换 + 内置 numpy 态矢量模拟器接入，`pip install gpuqviz[pyqpanda]`
 - 🖱️ **交互式 3D 播放器**：导出单文件 HTML（约 0.7MB，离线可开）——播放/暂停、0.25×~4× 倍速、时间轴拖动、鼠标旋转缩放视角，下方实时显示各基态概率/振幅/相位与 Bloch 向量
+- 📊 **专业测量统计**：精确概率 / 可复现 shot 采样（GPU 路径 n=24·10⁶ shots 亚秒）/ 全基矢振幅账本，与 qiskit/Aer 对拍（1e-10 / 1e-6）
+- 🔗 **纠缠分析**：纠缠熵 · 互信息 · negativity · Schmidt 谱，一次 `entanglement_summary` 算全
+- 🌊 **噪声开放系统**：Kraus 通道库（depolarizing / 弛豫 / 热弛豫，Aer 同约定），密度矩阵演化 + Hinton 图
+- 🧪 **条件门与中途测量**：确定性经典反馈分支演化，隐形传态四分支对拍
+- 🧬 **MPS 规模化**：20+ qubit χ 截断演化（SWAP 路由），约化分析量直喂渲染层
+- ⚙️ **参数化扫参**：符号参数模板 + 沿参数扫描全部分析量（VQE/QAOA 轨迹）
 
 ## 安装
 
@@ -127,7 +134,7 @@ export_html(circuit=qc, out="out/viewer.html", title="贝尔态演化")
 每个基态的概率条、振幅与相位，以及各 qubit 的 Bloch 向量。
 
 输入为 `circuit` 时，播放器顶部自动绘制 **SVG 量子电路图**，与 Bloch 球双向联动：
-播放时当前正在执行的门以橙色高亮；点击电路图中的任意门可跳转到该门对应的播放时刻，
+播放时当前正在执行的门以橙色高亮；**⏮⏭ / `[` `]` 按门步进**；点击电路图中的任意门可跳转到该门对应的播放时刻，
 Bloch 球与状态面板同步更新。支持的门符号：单量子门方框、受控门（控制点 + ⊕ 目标）、
 SWAP（× 符号）、ISWAP（跨行方框）、参数门（`RX(π/2)` 等标签）。
 
@@ -161,6 +168,21 @@ gpuqviz.show(qc, steps=60, fps=30, height=600, title="贝尔态")
 gpuqviz.show(qc, as_video=True, seconds=3, fps=30)
 ```
 
+`show()` 返回 Path 兼容的 `ViewerHandle`，Jupyter 双轨：
+
+```python
+h = gpuqviz.show(qc, out="viewer.html")
+fig = h.figure      # 当前帧的 matplotlib Figure（出版管线互操作）
+h.widget()          # ipywidgets 播放控件（可选依赖）
+h.save("v2.html")   # 另存 HTML
+```
+
+### 交互式电路实验室（在线 playground）
+
+站点自带浏览器端量子电路编辑器：门面板放置 H/CX/RY…、旋转门参数滑杆
+**拖动即演化**、噪声开关（depolarizing / dephasing 密度矩阵模拟，n ≤ 4）、
+门步进（⏮⏭ / `[` `]`）。纯静态托管，无需服务器。
+
 ### pyqpanda（本源量子）电路
 
 ```python
@@ -180,7 +202,84 @@ render_bloch_video(circuit=prog, machine=qm, out="out/bell.mp4")   # 与 qiskit 
 `machine=` 参数直接吃 pyqpanda `QProg`。注意：pyqpanda 的 ORIGINIR 转换必须使用
 创建 prog 的同一虚拟机实例，跨实例转换会在原生层崩溃（pyqpanda 已知行为）。
 
+## 专业轨道 Pro
+
+面向专业用户的分析内核：每个可视化量都有数学定义文档（[docs/conventions.md](docs/conventions.md)），
+并与 qiskit / Aer 交叉验证（精确量 1e-10、全电路含噪 1e-6，347 项测试）。
+
+### ProVisualizer：一条链完成演化 → 分析 → 导出
+
+```python
+from qiskit import QuantumCircuit
+from gpuqviz import ProVisualizer
+
+qc = QuantumCircuit(2)
+qc.h(0); qc.cx(0, 1)
+
+viz = (ProVisualizer(circuit)
+       .with_shots(shots=4096, seed=42)      # 可复现 shot 采样
+       .with_noise(("depolarizing", 0.05))   # 含噪演化（密度矩阵路径）
+       .analyze(pauli=["ZZ"], entanglement=True))
+
+report = viz.report()
+report.counts        # 测量计数（Counts，可导出 CSV/JSON）
+report.entanglement  # 纠缠报告：熵 / 互信息 / negativity
+report.pauli         # {"ZZ": 0.9999...}
+viz.export_video("noisy.mp4")   # 含噪 → Bloch 收缩自动呈现
+```
+
+### 分析模块
+
+```python
+from gpuqviz.analysis import sample_counts, state_table, fidelity, entanglement_summary
+
+counts = sample_counts(qc, shots=100_000, seed=7)   # PCG64 可复现；GPU 路径 n=24·10⁶ 亚秒
+table = state_table(qc)                              # 全基矢振幅/概率/相位（CSV 导出）
+rep = entanglement_summary(qc)                       # 熵 / 互信息 / negativity / Schmidt
+rep.strongest_pair()                                 # 纠缠最强的 qubit 对
+```
+
+### 噪声与开放系统
+
+```python
+from gpuqviz.noise import depolarizing, evolve_density, tensor_channels
+
+frames = evolve_density(3, gates,                       # 每门后施加 Kraus 通道
+                        noise=lambda g, i: tensor_channels(
+                            [depolarizing(0.02)] * (len(g.targets) + len(g.controls))))
+```
+
+depolarizing / amplitude_damping / phase_damping / thermal_relaxation 与
+Aer 同约定同数值；`DensityMatrixTrack` 以 Hinton 图逐帧展示相干性衰减。
+
+### 参数化扫参与条件门
+
+```python
+from gpuqviz.parameters import CircuitTemplate, Parameter, sweep
+
+tmpl = CircuitTemplate(2, [{"name": "RY", "targets": [0], "params": [Parameter("theta")]},
+                           {"name": "CX", "targets": [1], "controls": [0]}])
+result = sweep(tmpl, "theta", np.linspace(0, np.pi, 41), observables=["IZ", "ZZ"])
+result.to_csv("sweep.csv")     # 参数 / 纯度 / 纠缠熵 / 期望 —— VQE/QAOA 轨迹
+
+from gpuqviz.circuits import Condition, evolve_gates_branches
+ev = evolve_gates_branches(2, [Gate(name="MEASURE", targets=[0], params=[0]),
+                               Gate(name="X", targets=[1], condition=Condition(0, 1))],
+                           branch={0: 1})          # 确定性经典反馈分支
+```
+
+### 20+ qubit：MPS 后端
+
+```python
+from gpuqviz.mps import evolve_mps
+
+result = evolve_mps(20, gates, chi_max=8)   # χ 截断 + 非相邻门 SWAP 路由
+np.savez("bloch.npz", bloch=result.bloch_keys())   # 约化分析量 → 渲染层
+# 全程无 2^20 态矢量；低纠缠电路 χ 截断与精确演化逐位一致
+```
+
 ### CLI
+
 
 ```bash
 gpuqviz env                           # 环境能力自检（CUDA / OpenGL / NVENC / qiskit）
@@ -231,6 +330,12 @@ gates = qft(n=3, engine="numpy")
 | `render_bloch_video(circuit=…, steps=120, fps=60, trail=…)` | 布洛赫球动画 |
 | `render_heatmap_video(states=…, basis=…, colormap=…)` | 概率/相位/幅值热图动画 |
 | `render(scene)` | 渲染 Scene 对象 |
+| `ProVisualizer(circuit).report()` | 专业轨道门面：测量/纠缠/Pauli/保真度 |
+| `sample_counts(state, shots, seed)` | 可复现 shot 采样（CPU/GPU） |
+| `entanglement_summary(state)` | 纠缠全量报告 |
+| `evolve_density(n, gates, noise=…)` | 含噪密度矩阵演化 |
+| `sweep(template, param, values)` | 参数化扫参 |
+| `evolve_mps(n, gates, chi_max=…)` | 20+ qubit MPS 演化 |
 | `report_env()` | 环境能力报告 |
 
 完整 API 见 [docs/api.md](docs/api.md)，设计文档见 [DESIGN.md](DESIGN.md)。
@@ -267,7 +372,9 @@ libx264，只影响速度不影响功能，可用 `gpuqviz env` 确认探测结�
 <details>
 <summary>Linux 无显示环境能跑吗</summary>
 
-能。moderngl 走 EGL headless 渲染，无需 X server（需安装 libegl）。
+能。GL 上下文创建带跨平台回退链：默认后端失败（无 X server）时自动尝试
+EGL → OSMesa（CI 的 ubuntu runner 上实测通过）。Debian/Ubuntu 需
+<code>apt install libegl1 libgl1 libosmesa6</code>。
 </details>
 
 <details>
@@ -281,13 +388,19 @@ libx264，只影响速度不影响功能，可用 `gpuqviz env` 确认探测结�
 
 ```
 src/gpuqviz/
-├── api.py            # render_bloch_video / render_heatmap_video / render
-├── scene.py          # Scene / BlochTrack / HeatmapTrack / Camera (pydantic)
-├── evolve.py         # 电路采样 + 批量 einsum Bloch 向量
+├── api.py            # render_* / render_frame / render / export_html
+├── scene.py          # Scene / BlochTrack / HistogramTrack / DensityMatrixTrack …
+├── state.py          # Statevector / DensityMatrix 统一抽象 + partial trace
+├── analysis/         # 测量统计 / 度量 / 纠缠（对拍 qiskit 锁定）
+├── noise.py          # Kraus 通道库 + 密度矩阵演化
+├── parameters.py     # 参数化模板 + 扫参
+├── pro.py            # ProVisualizer 门面
+├── mps.py            # MPS 后端（χ 截断 + SWAP 路由）
+├── circuits.py       # 框架无关 Gate + 条件门/中途测量
+├── evolve.py         # 电路采样 + 批量 einsum Bloch 向量（纯态/密度矩阵）
 ├── interpolate.py    # slerp / lerp 关键帧插值（含对跖点处理）
 ├── encode.py         # AvEncoder / NvencEncoder / 探测式回退
-├── pipeline.py       # 底层渲染循环
-├── render/           # GLContext、布洛赫球、热图、相位盘、SDF 文字、分屏
+├── render/           # GLContext、布洛赫球、热图、直方图、纠缠图、Hinton、SDF 文字
 ├── backends/         # 后端探测 + numpy 软光栅
 └── assets/           # SDF 字体图集（随 wheel 分发）
 ```
@@ -297,7 +410,7 @@ src/gpuqviz/
 ```bash
 git clone <repo> && cd gpuqviz
 pip install -e .[qiskit,dev]
-python -m pytest tests -q          # 测试（23+ 用例）
+python -m pytest tests -q          # 测试（347 用例，含对拍 qiskit/Aer 契约）
 python examples/showcase.py        # 生成演示视频
 python benchmarks/suite.py         # 性能基准
 python scripts/gen_font_atlas.py   # 重新烘焙字体图集
@@ -313,10 +426,12 @@ python scripts/gen_font_atlas.py   # 重新烘焙字体图集
 - [x] Jupyter 交互集成：`gpuqviz.show(qc)` 一行代码内嵌 3D 播放器（断网可用），大 payload 自动降级，`as_video=True` 渲染视频内嵌
 - [x] 交互式电路图：`export_html(circuit=qc)` / `show(qc)` 自动绘制 SVG 量子电路图，与 Bloch 球双向联动（播放高亮当前门 / 点击门跳转）
 - [x] 内置算法库 + CLI demo：12 个经典量子算法（Bell/GHZ/Grover/QFT/QPE/Deutsch-Jozsa/Bernstein-Vazirani/隐形传态/超密编码/Simon/量子游走/叠加态），`gpuqviz demo --algo grover` 一行命令演示，支持 qiskit/pyqpanda 引擎切换
+- [x] **专业轨道 0.5.0**：约定契约 + 对拍体系（qiskit/Aer，1e-10/1e-6）、测量统计（GPU 采样 n=24 亚秒）、纠缠分析、噪声开放系统（Hinton）、参数化扫参、条件门/中途测量、ProVisualizer、MPS 后端（20+ qubit χ 截断）、直方图/纠缠图/Hinton 渲染器与 LOD、Jupyter 双轨（.figure/.widget）——见 [docs/development-plan.md](docs/development-plan.md)
 - [ ] CUDA-GL interop 零拷贝读回（当前 pinned memory）
 - [ ] QASM 电路文件直接输入
 - [ ] 更多国内模拟器适配（QPilotMachine / QCloud 等）
-- [ ] 变分算法（VQE/QAOA）与 Shor/HHL 等大规模算法
+- [ ] Shor/HHL 等大规模算法演示
+- [ ] 矢量输出（SVG/PDF）与 LaTeX 标注
 
 ## License
 
