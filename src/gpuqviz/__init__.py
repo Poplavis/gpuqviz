@@ -1,10 +1,23 @@
 """gpuqviz: GPU-accelerated quantum state evolution visualization and video rendering."""
 
-__version__ = "0.1.0"
+__version__ = "0.5.0"
 
 from .api import render, render_bloch_video, render_frame, render_heatmap_video  # noqa: E401
 from .env import report_env  # noqa: E401
 from .export_html import export_html  # noqa: E401
+from .presets import (  # noqa: E401
+    PRESETS, RES_1080P, RES_1440P, RES_4K, RES_480P, RES_720P, RES_8K,
+    RES_SQUARE_1080, RES_SQUARE_2160, RES_VERTICAL_1080, RES_VERTICAL_720,
+)
+from .scene import TextOverlay, TextPosition  # noqa: E401
+from .scene import (Scene, BlochTrack, BlochVectorsTrack,  # noqa: E401
+                    DensityMatrixTrack, EntanglementTrack, HeatmapTrack,
+                    HistogramTrack, Camera)
+from .state import DensityMatrix, Statevector  # noqa: E401
+
+# 分析层子模块（专业轨道：测量统计 / 度量 / 纠缠，不依赖渲染）
+from . import analysis  # noqa: E401
+from .pro import ProReport, ProVisualizer  # noqa: E401
 
 # 算法库子模块（惰性加载，不依赖 qiskit/pyqpanda）
 from . import algorithms  # noqa: E401
@@ -21,4 +34,12 @@ def show(*args, **kwargs):
 
 
 __all__ = ["__version__", "report_env", "render_bloch_video", "render_heatmap_video",
-           "render", "render_frame", "export_html", "show", "algorithms"]
+           "render", "render_frame", "export_html", "show", "algorithms", "analysis",
+           "Statevector", "DensityMatrix",
+           "PRESETS", "RES_480P", "RES_720P", "RES_1080P", "RES_1440P",
+           "RES_4K", "RES_8K", "RES_SQUARE_1080", "RES_SQUARE_2160",
+           "RES_VERTICAL_720", "RES_VERTICAL_1080",
+           "TextOverlay", "TextPosition",
+           "Scene", "BlochTrack", "HeatmapTrack", "HistogramTrack",
+           "EntanglementTrack", "DensityMatrixTrack", "BlochVectorsTrack",
+           "Camera", "ProVisualizer", "ProReport"]

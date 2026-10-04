@@ -39,12 +39,22 @@ def render(scene_file: Path = typer.Argument(..., exists=True, readable=True,
            out: Path = typer.Option("out/scene.mp4", "--out", "-o"),
            codec: str = typer.Option("h264", "--codec"),
            quality: float = typer.Option(0.9, "--quality", min=0.05, max=1.0),
-           nvenc: bool = typer.Option(True, "--nvenc/--no-nvenc")) -> None:
+           nvenc: bool = typer.Option(True, "--nvenc/--no-nvenc"),
+           width: int = typer.Option(None, "--width", help="覆盖 Scene 中的宽度（像素）"),
+           height: int = typer.Option(None, "--height", help="覆盖 Scene 中的高度（像素）"),
+           resolution: str = typer.Option(None, "--resolution",
+                                          help="预设分辨率（480p/720p/1080p/4k/square/vertical 等）")) -> None:
     """渲染 Scene JSON → MP4（states_path 相对于 JSON 文件所在目录解析）。"""
     from .api import render as _render
     from .scene import Scene
 
     scene = Scene.load_json(scene_file)
+    # 显式分辨率参数覆盖 Scene 模型中的尺寸
+    if resolution is not None:
+        from .presets import resolve_preset
+        scene.width, scene.height = resolve_preset(resolution)
+    elif width is not None and height is not None:
+        scene.width, scene.height = width, height
     path = _render(scene, out=out, codec=codec, quality=quality,
                    prefer_nvenc=nvenc, states_dir=scene_file.parent)
     typer.echo(f"rendered -> {path}")
@@ -110,8 +120,10 @@ def frame(scene_file: Path = typer.Option(None, "--scene", exists=True, readable
                                     help="dark/light/bw/poster 或自定义键值"),
           cols: int = typer.Option(None, "--cols", min=1,
                                    help="一行最多几个球（仅 Bloch 网格）"),
-          width: int = typer.Option(1920, "--width"),
-          height: int = typer.Option(1080, "--height")) -> None:
+          width: int = typer.Option(1920, "--width", help="输出宽度（像素）"),
+          height: int = typer.Option(1080, "--height", help="输出高度（像素）"),
+          resolution: str = typer.Option(None, "--resolution",
+                                         help="预设分辨率（480p/720p/1080p/4k/square/vertical 等）")) -> None:
     """渲染单帧静态 PNG（出版级，超采样抗锯齿）。"""
     from .api import render_frame as _render_frame
 
@@ -119,12 +131,19 @@ def frame(scene_file: Path = typer.Option(None, "--scene", exists=True, readable
         from .scene import Scene
 
         scene = Scene.load_json(scene_file)
+        # 显式分辨率参数覆盖 Scene 模型中的尺寸
+        if resolution is not None:
+            from .presets import resolve_preset
+            scene.width, scene.height = resolve_preset(resolution)
+        elif width != 1920 or height != 1080:
+            scene.width, scene.height = width, height
         path = _render_frame(scene=scene, t=time, out=out, scale=scale,
                              style=style, states_dir=scene_file.parent)
     elif states_npz is not None:
         states = list(np.load(states_npz)["states"])
         path = _render_frame(states=states, t=time, out=out, scale=scale,
-                             style=style, cols=cols, figsize=(width / 100, height / 100))
+                             style=style, cols=cols,
+                             width=width, height=height, resolution=resolution)
     else:
         typer.echo("需要提供 --scene xxx.json 或 --states xxx.npz")
         raise typer.Exit(1)
@@ -160,6 +179,12 @@ def demo(
                                help="PNG 静态帧归一化时刻 t∈[0,1]"),
     title: str = typer.Option(None, "--title",
                               help="播放器/视频标题（默认算法名）"),
+    watermark: str = typer.Option(None, "--watermark",
+                                  help="右下角水印文字（仅 mp4/png）"),
+    width: int = typer.Option(None, "--width", help="输出宽度（像素）"),
+    height: int = typer.Option(None, "--height", help="输出高度（像素）"),
+    resolution: str = typer.Option(None, "--resolution",
+                                   help="预设分辨率（480p/720p/1080p/4k/square/vertical 等）"),
 ) -> None:
     """一行命令演示内置量子算法可视化。
 
@@ -244,11 +269,14 @@ def demo(
         elif fmt == "mp4":
             from .api import render_bloch_video as _render
             path = _render(circuit=circuit, steps=steps, fps=fps,
-                          out=out, style=style, trail=trail, seconds=seconds)
+                          out=out, style=style, trail=trail, seconds=seconds,
+                          width=width, height=height, resolution=resolution,
+                          title=title, watermark=watermark)
         else:  # png
             from .api import render_frame as _render_frame
             path = _render_frame(circuit=circuit, t=time, out=out,
-                                scale=2, style=style)
+                                scale=2, style=style,
+                                width=width, height=height, resolution=resolution)
         typer.echo(f"demo [{algo}] -> {path}")
 
     # ---- pyqpanda 引擎 ----
@@ -305,11 +333,14 @@ def demo(
                 from .api import render_bloch_video as _render
                 path = _render(circuit=circuit, steps=steps, fps=fps,
                               out=out, style=style, trail=trail,
-                              seconds=seconds, machine=qm)
+                              seconds=seconds, machine=qm,
+                              width=width, height=height, resolution=resolution,
+                              title=title, watermark=watermark)
             else:  # png
                 from .api import render_frame as _render_frame
                 path = _render_frame(circuit=circuit, t=time, out=out,
-                                    scale=2, style=style, machine=qm)
+                                    scale=2, style=style, machine=qm,
+                                    width=width, height=height, resolution=resolution)
             typer.echo(f"demo [{algo}] (pyqpanda) -> {path}")
         finally:
             qm.finalize()

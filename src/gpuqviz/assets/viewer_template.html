@@ -18,7 +18,8 @@
   /* 控制栏 */
   #controls { display:flex; gap:12px; align-items:center; padding:10px 16px;
               background:var(--panel); border-top:1px solid #232a38; }
-  #playBtn { width:44px; height:36px; border:1px solid #2c3547; border-radius:8px;
+  #playBtn, #stepBackBtn, #stepFwdBtn { width:44px; height:36px;
+             border:1px solid #2c3547; border-radius:8px;
              background:#1a2130; color:var(--fg); font-size:16px; cursor:pointer; }
   #playBtn:hover { background:#232c40; }
   #speed { background:#1a2130; color:var(--fg); border:1px solid #2c3547;
@@ -79,7 +80,9 @@
   <div id="viewport"></div>
 
   <div id="controls">
+    <button id="stepBackBtn" title="上一门（[）">⏮</button>
     <button id="playBtn" title="播放/暂停（空格）">⏵</button>
+    <button id="stepFwdBtn" title="下一门（]）">⏭</button>
     <select id="speed" title="播放速度">
       <option value="0.25">0.25×</option>
       <option value="0.5">0.5×</option>

@@ -129,7 +129,10 @@ class TextRenderer:
         ctx = self.gl.ctx
         ctx.enable(ctx.BLEND)
         ctx.blend_func = ctx.SRC_ALPHA, ctx.ONE_MINUS_SRC_ALPHA
+        # 文字是 2D 叠加层：关闭深度测试，避免被同 z=0 的先绘图形等深丢弃
+        ctx.disable(ctx.DEPTH_TEST)
         self.vao.render(vertices=len(verts) // 4)
+        ctx.enable(ctx.DEPTH_TEST)
 
     def release(self):
         self.vao.release()

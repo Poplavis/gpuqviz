@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>算法演示画廊 — gpuqviz</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-inner">
+    <a class="brand" href="index.html"><span class="logo">⚛️</span> gpuqviz</a>
+    <button class="nav-toggle">☰</button>
+    <ul class="nav-links">
+      <li><a href="index.html">首页</a></li>
+      <li><a href="gallery.html" class="active">画廊</a></li>
+      <li><a href="playground.html">实验室</a></li>
+      <li><a href="docs.html">文档</a></li>
+      <li><a class="gh-link" href="https://github.com/Poplavis/gpuqviz" target="_blank">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<section class="section">
+  <div class="container">
+    <div class="section-header">
+      <h2>算法演示画廊</h2>
+      <p>12 个经典量子算法的交互式可视化演示 · 点击卡片即可播放</p>
+    </div>
+
+    <!-- 分类筛选 -->
+    <div class="gallery-filters">
+      <button class="filter-btn active" data-filter="all">全部</button>
+      <button class="filter-btn" data-filter="基础态">基础态</button>
+      <button class="filter-btn" data-filter="搜索">搜索</button>
+      <button class="filter-btn" data-filter="变换">变换</button>
+      <button class="filter-btn" data-filter="估计">估计</button>
+      <button class="filter-btn" data-filter="查询复杂度">查询复杂度</button>
+      <button class="filter-btn" data-filter="通信">通信</button>
+      <button class="filter-btn" data-filter="游走">游走</button>
+    </div>
+
+    <!-- 卡片网格 -->
+    <div class="gallery-grid" id="galleryGrid">
+      <!-- site.js 从 gallery-data.js 渲染 -->
+    </div>
+  </div>
+</section>
+
+<!-- 演示 Modal -->
+<div class="demo-modal" id="demoModal">
+  <div class="demo-modal-inner">
+    <button class="close-btn">✕</button>
+    <iframe src="about:blank"></iframe>
+  </div>
+</div>
+
+<footer class="footer">
+  <div class="container">
+    <p>Apache-2.0 · <a href="https://github.com/Poplavis/gpuqviz" target="_blank">GitHub</a> · Powered by gpuqviz</p>
+  </div>
+</footer>
+
+<script src="assets/gallery-data.js"></script>
+<script src="assets/site.js"></script>
+</body>
+</html>

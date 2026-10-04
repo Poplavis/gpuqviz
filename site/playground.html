@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>量子电路实验室 — gpuqviz</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-inner">
+    <a class="brand" href="index.html"><span class="logo">⚛️</span> gpuqviz</a>
+    <button class="nav-toggle">☰</button>
+    <ul class="nav-links">
+      <li><a href="index.html">首页</a></li>
+      <li><a href="gallery.html">画廊</a></li>
+      <li><a href="playground.html" class="active">实验室</a></li>
+      <li><a href="docs.html">文档</a></li>
+      <li><a class="gh-link" href="https://github.com/Poplavis/gpuqviz" target="_blank">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<div class="playground-layout">
+  <!-- 左侧：编辑器面板 -->
+  <div class="playground-editor">
+
+    <div class="editor-section">
+      <h4>量子比特数</h4>
+      <div class="qubit-control">
+        <button id="qubitDec">−</button>
+        <span class="num" id="qubitNum">3</span>
+        <button id="qubitInc">+</button>
+        <span style="color:var(--dim);font-size:0.8rem;margin-left:8px;">(2-6)</span>
+      </div>
+    </div>
+
+    <div class="editor-section">
+      <h4>门面板</h4>
+      <div class="gate-palette" id="gatePalette">
+        <!-- circuit-composer.js 自动渲染 -->
+      </div>
+      <p style="color:var(--dim);font-size:0.78rem;margin-top:8px;">
+        选中门后点击电路图中的 qubit 放置<br>
+        受控门：先选控制位，再选目标位<br>
+        参数门：点击 qubit 后输入角度
+      </p>
+    </div>
+
+    <div class="editor-section">
+      <h4>预设模板</h4>
+      <div class="preset-buttons" id="presetButtons">
+        <!-- circuit-composer.js 自动渲染 -->
+      </div>
+    </div>
+
+    <div class="editor-section">
+      <h4>电路编辑器</h4>
+      <div id="composerCircuit" style="overflow-x:auto;border:1px solid var(--border);border-radius:8px;background:var(--panel);padding:4px;">
+      </div>
+      <div id="circuitList" style="font-family:var(--mono);font-size:0.82rem;line-height:1.8;color:var(--fg);margin-top:8px;">
+      </div>
+    </div>
+
+    <div class="editor-section">
+      <h4>噪声（P4.2，n ≤ 4）</h4>
+      <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem;">
+        <input type="checkbox" id="noiseToggle"> 启用密度矩阵含噪模拟
+      </label>
+      <div id="noiseSliders" style="display:none;margin-top:8px;">
+        <label style="display:block;font-size:0.8rem;color:var(--dim);">
+          去极化 λ：<span id="noiseDepVal">0.05</span>
+          <input type="range" id="noiseDep" min="0" max="1" step="0.01" value="0.05"
+                 style="width:100%;accent-color:var(--accent);">
+        </label>
+        <label style="display:block;font-size:0.8rem;color:var(--dim);">
+          退相干 γ：<span id="noiseDephVal">0.05</span>
+          <input type="range" id="noiseDeph" min="0" max="1" step="0.01" value="0.05"
+                 style="width:100%;accent-color:var(--accent);">
+        </label>
+      </div>
+    </div>
+
+    <div class="editor-section">
+      <h4>旋转门参数（实时联动）</h4>
+      <div id="paramSliders" style="font-size:0.85rem;">
+      </div>
+    </div>
+
+    <div class="editor-section">
+      <button class="run-btn" id="runBtn">▶ 运行模拟</button>
+      <button class="clear-btn" id="clearBtn">🗑 清空电路</button>
+    </div>
+
+    <div class="editor-section">
+      <div id="composerStatus" style="font-size:0.85rem;color:var(--dim);min-height:20px;"></div>
+    </div>
+
+  </div>
+
+  <!-- 右侧：3D 播放器 -->
+  <div class="playground-player">
+    <div id="circuitPanel" class="hidden"></div>
+    <div id="viewport"></div>
+    <div id="controls">
+      <button id="playBtn" title="播放/暂停（空格）">⏵</button>
+      <select id="speed" title="播放速度">
+        <option value="0.25">0.25×</option>
+        <option value="0.5">0.5×</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2×</option>
+        <option value="4">4×</option>
+      </select>
+      <input id="scrub" type="range" min="0" max="1000" value="0">
+      <span id="timeLabel">0.00 / 0.00 s</span>
+    </div>
+    <div id="statePanel">
+      <div id="probList">
+        <h3>当前量子状态（计算基概率 / 振幅 / 相位）</h3>
+        <div id="probRows"></div>
+      </div>
+      <div id="blochPanel">
+        <h3>Bloch 向量</h3>
+        <div id="blochList"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 加载顺序：three.js → viewer.js → sim.js → composer.js -->
+<script src="assets/three.min.js?v=4"></script>
+<script src="assets/viewer.js?v=5"></script>
+<script src="assets/quantum-sim.js?v=4"></script>
+<script src="assets/circuit-composer.js?v=7"></script>
+<script>
+  // 页面加载后初始化编辑器（会自动加载 Bell 态并运行）
+  window.GPUQVIZ_COMPOSER.init();
+</script>
+<script src="assets/site.js"></script>
+</body>
+</html>

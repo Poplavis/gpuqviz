@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>gpuqviz — GPU 加速的量子态演化可视化</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="把 qiskit 电路一键渲染成布洛赫球与概率热图动画的 GPU 加速量子可视化库">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-inner">
+    <a class="brand" href="index.html"><span class="logo">⚛️</span> gpuqviz</a>
+    <button class="nav-toggle">☰</button>
+    <ul class="nav-links">
+      <li><a href="index.html" class="active">首页</a></li>
+      <li><a href="gallery.html">画廊</a></li>
+      <li><a href="playground.html">实验室</a></li>
+      <li><a href="docs.html">文档</a></li>
+      <li><a class="gh-link" href="https://github.com/Poplavis/gpuqviz" target="_blank">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="container">
+    <h1>GPU 加速的量子态演化可视化</h1>
+    <p class="subtitle">
+      把 qiskit 电路一键渲染成布洛赫球与概率热图动画 ——
+      matplotlib 方案 30 分钟的活，这里 20 秒干完。
+    </p>
+    <div class="cta-group">
+      <a class="btn btn-primary" href="playground.html">🧪 在线实验室</a>
+      <a class="btn btn-secondary" href="gallery.html">查看画廊 →</a>
+    </div>
+    <div class="hero-demo">
+      <iframe src="demos/bell.html" title="Bell 态演示"></iframe>
+    </div>
+  </div>
+</section>
+
+<!-- 核心特性 -->
+<section class="section">
+  <div class="container">
+    <div class="section-header">
+      <h2>核心特性</h2>
+      <p>从研究到教学，gpuqviz 覆盖量子电路可视化的全链路</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="icon">⚡</div>
+        <h3>极速渲染</h3>
+        <p>GPU 光栅化 + 关键帧插值，15s@60fps 视频秒级出片</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">📦</div>
+        <h3>零中间文件</h3>
+        <p>FBO 帧直通进程内编码器，不落盘，无 IO 瓶颈</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🎥</div>
+        <h3>NVENC 硬编码</h3>
+        <p>cupy RGBA → NV12 kernel → NVENC，全程不下显存</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🎨</div>
+        <h3>多渲染器</h3>
+        <p>布洛赫球、热图、直方图、纠缠图、密度矩阵 Hinton，多 qubit 分屏</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🖱️</div>
+        <h3>交互式播放器</h3>
+        <p>导出单文件 HTML（~0.7MB，离线可开），3D 旋转缩放</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🔬</div>
+        <h3>qiskit 原生衔接</h3>
+        <p>直接吃 QuantumCircuit，qiskit 仅为可选依赖</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 快速上手 -->
+<section class="section">
+  <div class="container">
+    <div class="section-header">
+      <h2>快速上手</h2>
+      <p>三行代码，把量子电路变成 3D 动画</p>
+    </div>
+    <pre><code># 安装
+pip install gpuqviz[qiskit]
+
+# 一行出片
+from gpuqviz import export_html
+from qiskit import QuantumCircuit
+
+qc = QuantumCircuit(2)
+qc.h(0)
+qc.cx(0, 1)
+
+export_html(circuit=qc, out="bell.html", title="贝尔态演化")
+# 双击 bell.html 即可打开交互式 3D 播放器</code></pre>
+  </div>
+</section>
+
+<!-- 专业轨道 -->
+<section class="section">
+  <div class="container">
+    <div class="section-header">
+      <h2>专业轨道 Pro</h2>
+      <p>对拍锁定的分析内核 · 噪声开放系统 · 20+ qubit MPS 规模化</p>
+    </div>
+    <div class="pro-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:28px;">
+      <div class="feature-card">
+        <div class="icon">📊</div>
+        <h3>测量统计</h3>
+        <p>精确概率 / 可复现 shot 采样（GPU：n=24·10⁶ shots 亚秒）/ 全基矢振幅账本</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🔗</div>
+        <h3>纠缠分析</h3>
+        <p>纠缠熵 · 互信息 · negativity · Schmidt 谱 —— 对拍 qiskit 至 1e-10</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🌊</div>
+        <h3>噪声开放系统</h3>
+        <p>depolarizing / 弛豫 / 热弛豫 Kraus 通道，密度矩阵 Hinton 图</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🧬</div>
+        <h3>MPS 规模化</h3>
+        <p>20+ qubit χ 截断演化，SWAP 路由，约化分析量直喂渲染层</p>
+      </div>
+    </div>
+    <pre><code>from qiskit import QuantumCircuit
+from gpuqviz import ProVisualizer
+
+qc = QuantumCircuit(2)
+qc.h(0); qc.cx(0, 1)
+
+viz = (ProVisualizer(circuit)
+       .with_shots(shots=4096, seed=42)
+       .with_noise(("depolarizing", 0.05))
+       .analyze(pauli=["ZZ"], entanglement=True))
+
+report = viz.report()        # 测量 / 纠缠 / Pauli 期望 —— 可导出核对
+viz.export_video("noisy.mp4")  # 含噪演化动画（Bloch 收缩自动呈现）</code></pre>
+    <p style="margin-top:12px;">专业轨道的全部数值由契约测试对拍 qiskit / Aer 锁定
+    （精确量 1e-10、全电路含噪 1e-6）——详见 <a href="docs.html#pro-visualizer" style="color:var(--accent);">文档 · 专业轨道</a>。</p>
+  </div>
+</section>
+
+<!-- 内置算法 -->
+<section class="section">
+  <div class="container">
+    <div class="section-header">
+      <h2>内置 12 个经典量子算法</h2>
+      <p>从 Bell 态到 Grover 搜索，一键可视化演示</p>
+    </div>
+    <div class="algo-tags" id="algoTags">
+      <!-- site.js 自动渲染 -->
+    </div>
+  </div>
+</section>
+
+<!-- CLI -->
+<section class="section">
+  <div class="container">
+    <div class="section-header">
+      <h2>CLI 命令</h2>
+      <p>无需写代码，一行命令演示内置算法</p>
+    </div>
+    <pre><code>gpuqviz demo --list                    # 列出内置算法
+gpuqviz demo --algo grover             # 一行命令演示（默认 HTML）
+gpuqviz demo --algo qft --format mp4   # 指定输出格式
+gpuqviz demo --algo bell --engine pyqpanda  # 切换模拟引擎</code></pre>
+  </div>
+</section>
+
+<!-- 性能对比 -->
+<section class="section">
+  <div class="container">
+    <div class="section-header">
+      <h2>性能对比</h2>
+      <p>消费级 NVIDIA GPU 实测</p>
+    </div>
+    <div class="features-grid" style="grid-template-columns: 1fr 1fr; max-width: 700px; margin: 0 auto;">
+      <div class="feature-card" style="text-align:center;">
+        <h3 style="color:var(--accent); font-size:2.5rem; margin:0;">3.9s</h3>
+        <p>gpuqviz (GL 后端)</p>
+        <p style="font-size:0.8rem;">Bell 态 3s@30fps 720p</p>
+      </div>
+      <div class="feature-card" style="text-align:center;">
+        <h3 style="color:var(--accent2); font-size:2.5rem; margin:0;">112.8s</h3>
+        <p>matplotlib 方案</p>
+        <p style="font-size:0.8rem;">同规格输出</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="container">
+    <p>Apache-2.0 · <a href="https://github.com/Poplavis/gpuqviz" target="_blank">GitHub</a> · Powered by gpuqviz</p>
+  </div>
+</footer>
+
+<script src="assets/gallery-data.js"></script>
+<script src="assets/site.js"></script>
+</body>
+</html>

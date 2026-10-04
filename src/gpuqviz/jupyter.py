@@ -168,13 +168,168 @@ def show(circuit=None, states=None, scene=None, steps: int = 60,
         )
         payload = _strip_state_panel(payload)
 
+    html_str = _build_html_string(payload, title, embed_three=True)
+
+    # 默认落盘路径（.save() 无参时沿用）
+    default_out = out if out is not None else Path("out/viewer.html")
+    default_out = Path(default_out)
+    default_out.parent.mkdir(parents=True, exist_ok=True)
+    default_out.write_text(html_str, encoding="utf-8")
+
+    frame_kwargs = {"circuit": circuit, "states": states, "scene": scene,
+                    "states_dir": kwargs.get("states_dir")}
+    frame_kwargs = {k: v for k, v in frame_kwargs.items() if v is not None}
+    handle = ViewerHandle(default_out, html_str, title, height, frame_kwargs)
+
     if _is_notebook():
-        if out is not None:
-            # 显式指定 out：先写文件，再内嵌显示（双输出）
-            _write_html_file(payload, title, out, embed_three=True)
-        return _display_html(payload, title, height)
-    # 非 notebook：写文件
-    return _write_html_file(payload, title, out, embed_three=True)
+        try:
+            from IPython.display import HTML, display
+
+            display(HTML(handle._repr_html_()))  # 保持"一行出片即显示"
+        except ImportError:
+            pass
+        return handle
+    # 非 notebook：返回 Path 兼容的句柄（文件已写好，打印提示）
+    print(f"viewer HTML written to {default_out} (open in browser)")
+    return handle
+
+
+class ViewerHandle(type(Path())):
+    """show() 的返回对象（P4.3 Jupyter 双轨）。
+
+    - Path 兼容：非 notebook 下 .exists()/open() 等照常工作；
+    - notebook 富显示：作为单元格末表达式自动内嵌播放器（_repr_html_）；
+    - ``.figure``：当前帧的 matplotlib Figure（出版管线互操作）；
+    - ``.widget()``：ipywidgets 播放控件（需 ipywidgets，可选依赖）；
+    - ``.save(out)``：另存 HTML。
+    """
+
+    def __new__(cls, path, html_str, title, height, frame_kwargs):
+        return super().__new__(cls, str(path))
+
+    def __init__(self, path, html_str, title, height, frame_kwargs):
+        self._html_str = html_str
+        self._title = title
+        self._height = height
+        self._frame_kwargs = dict(frame_kwargs)
+        self._frame_t = 0.5
+        self.fig = None
+
+    # ---- notebook 富显示 ------------------------------------------------ #
+
+    def _repr_html_(self) -> str:
+        import html as html_module
+
+        srcdoc = html_module.escape(self._html_str, quote=True)
+        return (
+            f'<iframe srcdoc="{srcdoc}" width="100%" height="{self._height}" '
+            f'style="border:1px solid #232a38;border-radius:8px;" '
+            f'allowfullscreen></iframe>'
+        )
+
+    def display(self, height: int | None = None):
+        """手动内嵌显示（等价于 show() 在 notebook 中的旧行为）。"""
+        try:
+            from IPython.display import HTML, display
+        except ImportError as e:  # pragma: no cover
+            raise ImportError("IPython required for display") from e
+        h = height or self._height
+        display(HTML(self._repr_html_().replace(str(self._height), str(h), 1)))
+        return None
+
+    # ---- matplotlib 互操作 ---------------------------------------------- #
+
+    @property
+    def figure(self):
+        """当前帧的 matplotlib Figure（PNG 帧渲染 → imshow）。
+
+        首次访问后缓存在 ``.fig``；时间点由 ``.frame_t``（0..1 占比）控制。
+        """
+        if getattr(self, "fig", None) is not None:
+            return self.fig
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError as e:  # pragma: no cover
+            raise ImportError("matplotlib required for .figure; "
+                              "install with `pip install matplotlib`") from e
+
+        import tempfile
+
+        from PIL import Image
+
+        from .api import render_frame
+
+        with tempfile.TemporaryDirectory() as td:
+            png = render_frame(out=str(Path(td) / "frame.png"),
+                               t=self._frame_t, scale=1,
+                               **self._frame_kwargs)
+            with Image.open(png) as im:
+                img = im.copy()  # 释放文件句柄（Windows 临时目录清理需要）
+
+        fig = plt.figure(figsize=(img.width / 100, img.height / 100))
+        ax = fig.add_axes([0, 0, 1, 1])
+        ax.axis("off")
+        ax.imshow(img)
+        plt.close(fig)  # 防止重复显示；fig 对象仍可用
+        self.fig = fig
+        return fig
+
+    # ---- ipywidgets 控件 ------------------------------------------------- #
+
+    def widget(self, fps: float = 8.0):
+        """ipywidgets 播放控件（拖动时间轴逐帧渲染，需 ipywidgets）。"""
+        try:
+            import ipywidgets as wgt
+        except ImportError as e:  # pragma: no cover
+            raise ImportError("ipywidgets required for .widget(); "
+                              "install with `pip install ipywidgets`") from e
+        from IPython.display import display
+
+        duration = float(self._frame_kwargs.get("duration",
+                                                self._frame_kwargs.get("seconds",
+                                                                       4.0)))
+        n_frames = max(2, int(duration * fps))
+
+        img_widget = wgt.Image(format="png")
+
+        def render_to_png(t01: float) -> bytes:
+            import io
+            import tempfile
+
+            from PIL import Image
+
+            from .api import render_frame
+
+            with tempfile.TemporaryDirectory() as td:
+                png = render_frame(out=str(Path(td) / "f.png"), t=t01, scale=1,
+                                   **self._frame_kwargs)
+                buf = io.BytesIO()
+                Image.open(png).save(buf, format="PNG")
+                return buf.getvalue()
+
+        def on_value(change):
+            img_widget.value = render_to_png(change["new"] / (n_frames - 1))
+
+        play = wgt.Play(value=0, min=0, max=n_frames - 1, interval=1000 / fps,
+                        description="播放")
+        slider = wgt.IntSlider(value=0, min=0, max=n_frames - 1, step=1,
+                               description="t")
+        wgt.jslink((play, "value"), (slider, "value"))
+        slider.observe(on_value, names="value")
+        img_widget.value = render_to_png(0.0)
+        box = wgt.VBox([wgt.HBox([play, slider]), img_widget])
+        display(box)
+        return box
+
+    # ---- 落盘 ------------------------------------------------------------ #
+
+    def save(self, out: str | Path | None = None) -> Path:
+        """另存 HTML（默认沿用 show() 时的路径）。"""
+        target = Path(out) if out is not None else Path(self)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(self._html_str, encoding="utf-8")
+        print(f"viewer HTML written to {target} (open in browser)")
+        return target
 
 
 def _display_html(payload: dict, title: str, height: int):

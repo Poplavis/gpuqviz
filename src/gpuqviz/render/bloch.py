@@ -205,13 +205,18 @@ class BlochRenderer:
         ctx.disable(ctx.BLEND)
 
     def draw_vector(self, v, center, radius) -> None:
-        """画态矢量箭头（球心→Bloch 向量端点）+ 端点小球标记。"""
+        """画态矢量箭头（球心→Bloch 向量端点）+ 端点小球标记。
+
+        箭头长度 = Bloch 向量模长 × radius，使单 qubit 纯度（|v|）可见：
+        纯态满长，混态/纠缠态缩短至球心。
+        """
         v = np.asarray(v, dtype=np.float64).reshape(3)
         n = np.linalg.norm(v)
         if n > 1e-9:
             v = v / n
+            length = radius * min(n, 1.0)
             self._arrow[0] = center
-            self._arrow[1] = center + v * radius
+            self._arrow[1] = center + v * length
             self.arrow_vbo.write(self._arrow.astype(np.float32).tobytes())
             self._set_common(self.style["vector_color"], 1.0, 0.0)
             # 箭头顶点已是世界坐标，用单位模型矩阵（勿二次变换）
@@ -223,11 +228,18 @@ class BlochRenderer:
             self.sphere_vao.render()
 
     def draw_trail(self, points, center, radius) -> None:
-        """画轨迹尾巴：points 为单位球坐标点列 (N,3)，绕 center 缩放平移。"""
+        """画轨迹尾巴：points 为 Bloch 向量点列 (N,3)，绕 center 缩放平移。
+
+        各点长度按模长缩放（与 draw_vector 一致），保留纯度变化轨迹。
+        """
         pts = np.asarray(points, dtype=np.float64)
         if len(pts) < 2:
             return
-        world = pts * radius + center
+        norms = np.linalg.norm(pts, axis=-1, keepdims=True)
+        norms = np.where(norms > 1e-9, norms, 1.0)
+        unit = pts / norms
+        lengths = np.clip(np.linalg.norm(pts, axis=-1, keepdims=True), 0.0, 1.0)
+        world = unit * lengths * radius + center
         self.trail_vbo.write(world.astype(np.float32).tobytes())
         self._set_common(self.style["trail_color"], self.style.get("trail_alpha", 0.6), 0.0)
         self._write_model(np.zeros(3), 1.0)

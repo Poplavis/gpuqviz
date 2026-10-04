@@ -17,3 +17,6 @@ out/
 # IDE
 .idea/
 .vscode/
+
+# ZCode 会话工作文件
+.zcode/

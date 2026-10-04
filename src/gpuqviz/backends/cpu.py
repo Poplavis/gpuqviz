@@ -293,6 +293,21 @@ class SoftRasterContext:
         mask = np.abs(d - 1.0) * min(rx, ry) <= thickness
         self.frame[y0:y1, x0:x1][mask, :3] = np.array([r, g, b], np.uint8)
 
+    def draw_rect_fill(self, x, y, w, h, color, alpha=1.0):
+        """轴对齐实心矩形（直方图柱）。坐标可含小数，裁剪到帧边界。"""
+        H, W = self.height, self.width
+        x0 = max(0, int(np.floor(x)))
+        y0 = max(0, int(np.floor(y)))
+        x1 = min(W, int(np.ceil(x + w)))
+        y1 = min(H, int(np.ceil(y + h)))
+        if x0 >= x1 or y0 >= y1:
+            return
+        rgb = (np.asarray(color[:3]) * 255).astype(np.float64)
+        a = float(alpha)
+        sl = self.frame[y0:y1, x0:x1, :3].astype(np.float64)
+        blended = sl * (1 - a) + rgb[None, None, :] * a
+        self.frame[y0:y1, x0:x1, :3] = blended.astype(np.uint8)
+
     def draw_segment(self, p0, p1, color, thickness=1.5):
         """线段 p0→p1（像素坐标，y 向下）。"""
         p0 = np.asarray(p0, float)
@@ -358,20 +373,65 @@ class SoftRasterContext:
         self.frame[y : y + h_clip, x : x + w_clip, :3] = rgb
 
     def draw_text(self, text, position, size_px, color=(1, 1, 1, 1)):
-        """PIL ImageDraw 绘制文字（CPU 路径允许直接走 PIL，与 GL SDF 互不影响）。"""
-        from PIL import Image, ImageDraw, ImageFont
+        """PIL ImageDraw 绘制文字（CPU 路径允许直接走 PIL，与 GL SDF 互不影响）。
+
+        使用透明 overlay + alpha_composite，确保文字区域 alpha 通道恒为 255，
+        避免 H.264 编码后出现颜色深浅不一的伪影。
+        """
+        from PIL import Image, ImageDraw
 
         W, H = self.width, self.height
-        pil = Image.fromarray(self.frame, mode="RGBA")
-        draw = ImageDraw.Draw(pil)
+        px, py = int(position[0]), int(position[1])
         r, g, b = (int(c * 255) for c in color[:3])
-        a = int(getattr(color, "__len__", lambda: 1)() and color[3] * 255) if len(color) > 3 else 255
+        a = int(color[3] * 255) if len(color) > 3 else 255
 
-        # 字体：尝试系统字体，失败则用 PIL default
         font = _get_pil_font(size_px)
-        # PIL 坐标 y 向下，与我们的 frame 一致
-        draw.text((int(position[0]), int(position[1])), text, fill=(r, g, b, a), font=font)
-        self.frame = np.array(pil, dtype=np.uint8)
+        bbox = font.getbbox(text)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        pad = 4
+
+        overlay = Image.new("RGBA", (tw + pad * 2, th + pad * 2), (0, 0, 0, 0))
+        ImageDraw.Draw(overlay).text(
+            (pad - bbox[0], pad - bbox[1]), text,
+            fill=(r, g, b, a), font=font,
+        )
+        base = Image.fromarray(self.frame, mode="RGBA")
+        base.alpha_composite(overlay, (px - pad, py - pad))
+        self.frame = np.array(base, dtype=np.uint8)
+
+    def draw_text_with_shadow(self, text, position, size_px, color,
+                              shadow_offset=(2, 2), shadow_alpha=0.5):
+        """绘制带阴影的文字 — 阴影与正文绘制在同一透明 overlay 上。
+
+        阴影和正文共用一个 overlay 后一次性 alpha_composite 到 frame，
+        保证边缘抗锯齿只做一次，不会出现黑色/白色杂混像素。
+        """
+        from PIL import Image, ImageDraw
+
+        W, H = self.width, self.height
+        px, py = int(position[0]), int(position[1])
+        r, g, b = (int(c * 255) for c in color[:3])
+        a = int(color[3] * 255) if len(color) > 3 else 255
+        sa = int(shadow_alpha * 255)
+        ox, oy = shadow_offset
+
+        font = _get_pil_font(size_px)
+        bbox = font.getbbox(text)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        pad = max(4, max(abs(ox), abs(oy)) + 2)
+        ow, oh = tw + pad * 2, th + pad * 2
+
+        overlay = Image.new("RGBA", (ow, oh), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        # 阴影先画（offset 偏移），正文后画（pad 偏移），共用同一 alpha 通道
+        draw.text((pad - bbox[0] + ox, pad - bbox[1] + oy), text,
+                  fill=(0, 0, 0, sa), font=font)
+        draw.text((pad - bbox[0], pad - bbox[1]), text,
+                  fill=(r, g, b, a), font=font)
+
+        base = Image.fromarray(self.frame, mode="RGBA")
+        base.alpha_composite(overlay, (px - pad, py - pad))
+        self.frame = np.array(base, dtype=np.uint8)
 
     def draw_phase_disc(self, state, rect):
         """相位色盘 CPU 版：单位圆盘上极径=亮度、色相=相位。"""
@@ -429,14 +489,17 @@ _pil_font_cache: dict = {}
 
 
 def _get_pil_font(size_px: float):
-    """获取 PIL ImageFont：尝试系统字体，失败回退 default。"""
+    """获取 PIL ImageFont：优先使用支持中文的字体，失败回退 default。"""
     key = int(size_px)
     if key in _pil_font_cache:
         return _pil_font_cache[key]
     from PIL import ImageFont
 
     font = None
-    for name in ("arial.ttf", "msyh.ttc", "DejaVuSans.ttf"):
+    # 优先尝试中文支持字体，再尝试纯英文字体
+    for name in ("msyh.ttc", "msyh.ttf", "simhei.ttf", "simsun.ttc",
+                 "SourceHanSansSC-Regular.otf", "NotoSansCJK-Regular.ttc",
+                 "arial.ttf", "DejaVuSans.ttf"):
         try:
             font = ImageFont.truetype(name, key)
             break
@@ -456,7 +519,10 @@ class SoftRasterBloch:
         self.style = style
 
     def draw(self, v, center, radius):
-        """center: 像素坐标 (cx, cy)（y 向下）；v: (3,) Bloch 向量（z 向上）。"""
+        """center: 像素坐标 (cx, cy)（y 向下）；v: (3,) Bloch 向量（z 向上）。
+
+        箭头长度 = |v| × radius（纯态满长，混态/纠缠态缩短），保留单 qubit 纯度信息。
+        """
         cx, cy = center
         s = self.soft
         # 球壳与赤道
@@ -468,12 +534,13 @@ class SoftRasterBloch:
         axis = np.asarray(self.style["axis_color"][:3])
         s.draw_segment((cx - radius * 1.15, cy), (cx + radius * 1.15, cy), axis)
         s.draw_segment((cx, cy - radius * 1.15), (cx, cy + radius * 1.15), axis)
-        # 态矢量：正交投影 (x, -z)
+        # 态矢量：正交投影 (x, -z)，长度按模长缩放
         v = np.asarray(v, float).reshape(3)
         n = np.linalg.norm(v)
         if n > 1e-9:
             v = v / n
-            tip = (cx + v[0] * radius, cy - v[2] * radius)
+            length = radius * min(n, 1.0)
+            tip = (cx + v[0] * length, cy - v[2] * length)
             s.draw_segment((cx, cy), tip, self.style["vector_color"][:3], 2.0)
             s.draw_circle_disk(tip[0], tip[1], 3.5, self.style["vector_color"][:3], 1.0)
 
@@ -513,15 +580,19 @@ class SoftRasterHeatmap:
 
 def render_bloch_video_cpu(states_bloch, fps, out, theme, width, height,
                            n_qubits, codec="h264", quality=0.9,
-                           trail=False, cols=None) -> "object":
+                           trail=False, cols=None,
+                           overlays=None, fps_val=None) -> "object":
     """CPU 软光栅出片：frames_bloch (F, n, 3) → MP4。接口与 GL 路径对齐。
 
     cols：一行最多几个球（None=单行）。多行布局以正交投影排成网格。
+    overlays：TextOverlay 列表，在每帧绘制完成后叠加文字（可为 None/空）。
+    fps_val：用于 overlay 时间过滤的帧率（默认同 fps）。
     """
     import time
     from pathlib import Path
 
     from ..encode import create_encoder
+    from ..scene import _hex_to_rgb01
 
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -535,6 +606,7 @@ def render_bloch_video_cpu(states_bloch, fps, out, theme, width, height,
     spacing_px = int(min(cell_w, cell_h) * 0.78)
     radius_px = int(spacing_px * 0.35)
     total_frames = states_bloch.shape[0]
+    eff_fps = fps_val if fps_val is not None else fps
 
     trails: list[list] = [[] for _ in range(n_qubits)]
     t0 = time.perf_counter()
@@ -553,11 +625,17 @@ def render_bloch_video_cpu(states_bloch, fps, out, theme, width, height,
                     trails[i].append(np.asarray(vecs[i], float))
                     for k in range(1, len(trails[i])):
                         a, b = trails[i][k - 1], trails[i][k]
+                        na = np.clip(np.linalg.norm(a), 0.0, 1.0)
+                        nb = np.clip(np.linalg.norm(b), 0.0, 1.0)
                         renderer.soft.draw_segment(
-                            (cx + a[0] * radius_px, cy - a[2] * radius_px),
-                            (cx + b[0] * radius_px, cy - b[2] * radius_px),
+                            (cx + a[0] * radius_px * na, cy - a[2] * radius_px * na),
+                            (cx + b[0] * radius_px * nb, cy - b[2] * radius_px * nb),
                             theme["trail_color"][:3], 1.0)
                 renderer.draw(vecs[i], (cx, cy), radius_px)
+            # 文字叠加（scale=1，CPU 视频路径无超采样）
+            if overlays:
+                _draw_overlays_cpu_inline(soft, overlays, width, height,
+                                          1, t / eff_fps, _hex_to_rgb01)
 
         with create_encoder(width, height, fps, out, codec=codec,
                             quality=quality) as enc:
@@ -568,16 +646,41 @@ def render_bloch_video_cpu(states_bloch, fps, out, theme, width, height,
     return out
 
 
+def _draw_overlays_cpu_inline(soft, overlays, width, height, scale,
+                              current_time, hex_to_rgb):
+    """CPU 路径内联 overlay 绘制（避免与 api.py 循环依赖）。"""
+    for ov in overlays:
+        if not ov.is_active(current_time):
+            continue
+        x, y = ov.resolve_pixels(width, height)
+        r, g, b = hex_to_rgb(ov.color)
+        alpha = ov.opacity
+        if ov.shadow:
+            soft.draw_text_with_shadow(
+                ov.text, (x * scale, y * scale),
+                ov.font_size * scale, (r, g, b, alpha),
+                shadow_offset=(2 * scale, 2 * scale),
+                shadow_alpha=alpha * 0.5)
+        else:
+            soft.draw_text(ov.text, (x * scale, y * scale),
+                           ov.font_size * scale, (r, g, b, alpha))
+
+
 def render_heatmap_video_cpu(states, fps, out, width, height, basis="probability",
                              colormap="viridis", codec="h264", quality=0.9,
-                             seconds=None, steps=120) -> "object":
-    """CPU 软光栅热图出片：态矢量序列 → 概率/幅值/相位热图动画 MP4。"""
+                             seconds=None, steps=120,
+                             overlays=None, fps_val=None) -> "object":
+    """CPU 软光栅热图出片：态矢量序列 → 概率/幅值/相位热图动画 MP4。
+
+    overlays：TextOverlay 列表，在每帧绘制完成后叠加文字。
+    """
     import time
     from pathlib import Path
 
     from ..encode import create_encoder
     from ..interpolate import lerp_states
     from ..render.heatmap import state_to_image
+    from ..scene import _hex_to_rgb01
 
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -585,6 +688,7 @@ def render_heatmap_video_cpu(states, fps, out, width, height, basis="probability
     frames = lerp_states(states, total_frames)
     if hasattr(frames, "get"):
         frames = frames.get()
+    eff_fps = fps_val if fps_val is not None else fps
 
     t0 = time.perf_counter()
     with SoftRasterContext(width, height, fps=fps) as soft:
@@ -600,6 +704,10 @@ def render_heatmap_video_cpu(states, fps, out, width, height, basis="probability
             w, h = cell * cols, cell * rows
             rect = ((width - 160 - w) / 2, (height - h) / 2 + 30, w, h)
             renderer.draw(frames[t], rect, basis=basis)
+            # 文字叠加
+            if overlays:
+                _draw_overlays_cpu_inline(soft, overlays, width, height,
+                                          1, t / eff_fps, _hex_to_rgb01)
 
         with create_encoder(width, height, fps, out, codec=codec,
                             quality=quality) as enc:

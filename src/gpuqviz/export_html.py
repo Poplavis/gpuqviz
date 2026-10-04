@@ -33,12 +33,20 @@ def _load_text(ref) -> str:
 # --------------------------------------------------------------------------- #
 
 def _gate_label(gate) -> str:
-    """Gate → 浏览器端显示标签（含参数格式化）。"""
+    """Gate → 浏览器端显示标签（含参数格式化与条件标记）。"""
     name = gate.name.upper()
     if name == "UNITARY":
         return "U"
     if name == "BARRIER":
         return "┊"
+    if name == "MEASURE":
+        clbit = int(gate.params[0]) if gate.params else 0
+        return f"M→c{clbit}"
+    if name == "RESET":
+        return "RST"
+    suffix = ""
+    if getattr(gate, "condition", None) is not None:
+        suffix = f"·c{gate.condition.clbit}=={gate.condition.value}"
     if gate.params:
         parts = []
         for p in gate.params:
@@ -64,8 +72,8 @@ def _gate_label(gate) -> str:
                     parts.append(f"{num}π/4")
             else:
                 parts.append(f"{p:.2f}")
-        return f"{name}({','.join(parts)})"
-    return name
+        return f"{name}({','.join(parts)}){suffix}"
+    return name + suffix
 
 
 def _build_circuit_info(circuit, steps: int, duration: float,

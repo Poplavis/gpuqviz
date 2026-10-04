@@ -70,12 +70,21 @@ def bake_colormap(name: str = "viridis", levels: int = 256) -> np.ndarray:
 
 
 def state_to_image(state, basis: str = "probability"):
-    """态矢量 (2**n,) → 网格化显示图 (rows, cols) float32 ∈ [0,1]。
+    """态矢量 (2**n,) 或密度矩阵 (2**n, 2**n) → 网格化显示图 (rows, cols)。
 
-    cols = 2**ceil(n/2)（宽），rows = 其余；计算在 GPU（cupy 输入时）。
+    密度矩阵输入取对角线（计算基概率）；phase 基对混合态无定义，
+    传其他 basis 时直接报错。cols = 2**ceil(n/2)（宽），rows = 其余；
+    计算在 GPU（cupy 输入时）。
     """
     xp = cp if (cp is not None and isinstance(state, cp.ndarray)) else np
-    psi = xp.asarray(state).reshape(-1).astype(xp.complex128)
+    arr = xp.asarray(state).astype(xp.complex128)
+    if arr.ndim == 2 and arr.shape[0] == arr.shape[1]:
+        if basis != "probability":
+            raise ValueError(f"basis {basis!r} undefined for density matrices; "
+                             "use 'probability'")
+        psi = xp.real(xp.diag(arr)).astype(xp.complex128)
+    else:
+        psi = arr.reshape(-1)
     dim = psi.shape[0]
     n = int(round(np.log2(dim)))
     if 2**n != dim:

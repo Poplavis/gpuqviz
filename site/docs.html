@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>文档与教程 — gpuqviz</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-inner">
+    <a class="brand" href="index.html"><span class="logo">⚛️</span> gpuqviz</a>
+    <button class="nav-toggle">☰</button>
+    <ul class="nav-links">
+      <li><a href="index.html">首页</a></li>
+      <li><a href="gallery.html">画廊</a></li>
+      <li><a href="playground.html">实验室</a></li>
+      <li><a href="docs.html" class="active">文档</a></li>
+      <li><a class="gh-link" href="https://github.com/Poplavis/gpuqviz" target="_blank">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<div class="docs-layout">
+
+  <!-- 侧边栏 -->
+  <aside class="docs-sidebar">
+    <nav>
+      <div class="group-title">快速上手</div>
+      <a href="#install">安装</a>
+      <a href="#quickstart">一行出片</a>
+      <a href="#html-player">交互式 HTML 播放器</a>
+      <a href="#jupyter">Jupyter 集成</a>
+
+      <div class="group-title">API 参考</div>
+      <a href="#api-high">高层 API</a>
+      <a href="#api-algorithms">内置算法库</a>
+      <a href="#api-cli">CLI 命令</a>
+
+      <div class="group-title">专业轨道 Pro</div>
+      <a href="#pro-visualizer">ProVisualizer 门面</a>
+      <a href="#pro-measurement">测量统计</a>
+      <a href="#pro-analysis">度量与纠缠分析</a>
+      <a href="#pro-noise">噪声与开放系统</a>
+      <a href="#pro-sweep">参数化电路与扫参</a>
+      <a href="#pro-conditional">中途测量与条件门</a>
+      <a href="#pro-mps">MPS 大规模后端</a>
+
+      <div class="group-title">算法原理</div>
+      <a href="#algo-bell">Bell 态与 GHZ 态</a>
+      <a href="#algo-grover">Grover 搜索</a>
+      <a href="#algo-qft">量子傅里叶变换</a>
+      <a href="#algo-qpe">量子相位估计</a>
+      <a href="#algo-dj-bv">Deutsch-Jozsa / BV</a>
+      <a href="#algo-comm">隐形传态 / 超密编码</a>
+
+      <div class="group-title">后端与性能</div>
+      <a href="#backends">GL / CPU 后端</a>
+      <a href="#nvenc">NVENC 硬编码</a>
+      <a href="#benchmarks">性能基准</a>
+
+      <div class="group-title">常见问题</div>
+      <a href="#faq">FAQ</a>
+    </nav>
+  </aside>
+
+  <!-- 内容区 -->
+  <div class="docs-content">
+
+    <h2 id="install">安装</h2>
+    <pre><code>pip install gpuqviz[qiskit]     # 推荐：qiskit 输入支持
+pip install gpuqviz[gpu]        # 追加 CUDA 12.x（cupy + NVENC）
+pip install gpuqviz[preview]    # 追加实时预览
+pip install gpuqviz[pyqpanda]   # 本源量子 pyqpanda 支持</code></pre>
+    <p>环境要求：Python ≥ 3.9，任何支持 OpenGL 3.3 的 GPU（无 N 卡也能跑，编码自动回退软编码）。</p>
+
+    <h2 id="quickstart">一行出片</h2>
+    <pre><code>from qiskit import QuantumCircuit
+from gpuqviz import render_bloch_video
+
+qc = QuantumCircuit(2)
+qc.h(0)
+qc.cx(0, 1)
+
+render_bloch_video(circuit=qc, out="out/bell.mp4")   # 1080p60 布洛赫球动画</code></pre>
+
+    <h2 id="html-player">交互式 HTML 播放器</h2>
+    <pre><code>from gpuqviz import export_html
+
+export_html(circuit=qc, out="out/viewer.html", title="贝尔态演化")</code></pre>
+    <p>双击 <code>viewer.html</code> 即可打开：3D 视口（鼠标拖拽旋转 / 滚轮缩放）、播放/暂停（空格）、0.25×~4× 倍速、时间轴拖动（←/→ 逐帧步进），底部实时显示当前量子状态。</p>
+    <p>输入为 <code>circuit</code> 时，播放器顶部自动绘制 SVG 量子电路图，与 Bloch 球双向联动：播放时当前正在执行的门以橙色高亮；点击电路图中的任意门可跳转到该门对应的播放时刻。</p>
+
+    <h2 id="jupyter">Jupyter 集成</h2>
+    <pre><code>import gpuqviz
+gpuqviz.show(qc)  # notebook 中一行代码 → 内嵌可交互 3D 播放器
+
+h = gpuqviz.show(qc, out="viewer.html")  # 返回 Path 兼容句柄
+fig = h.figure        # 当前帧的 matplotlib Figure（出版管线）
+h.widget()            # ipywidgets 播放控件（需 ipywidgets）
+h.save("other.html")  # 另存 HTML</code></pre>
+    <p><code>show()</code> 自动检测运行环境：Jupyter 中通过 iframe srcdoc 内嵌自包含 HTML；终端回退为写 HTML 文件并返回 <code>ViewerHandle</code>（Path 兼容）。大 payload（&gt;8MB）自动剥离状态面板数据。</p>
+
+    <h2 id="api-high">高层 API</h2>
+    <table style="width:100%;border-collapse:collapse;font-size:0.92rem;">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border);">
+          <th style="text-align:left;padding:8px;">函数</th>
+          <th style="text-align:left;padding:8px;">用途</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;"><code>render_bloch_video(circuit=…, steps=120, fps=60, trail=…)</code></td><td style="padding:8px;">布洛赫球动画 MP4</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;"><code>render_heatmap_video(states=…, basis=…, colormap=…)</code></td><td style="padding:8px;">概率/相位/幅值热图 MP4</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;"><code>render_frame(circuit=…, t=0.5, out=…)</code></td><td style="padding:8px;">单帧 PNG（出版级静态图）</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;"><code>export_html(circuit=…, out=…, title=…)</code></td><td style="padding:8px;">交互式 3D 播放器 HTML</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;"><code>show(circuit=…)</code></td><td style="padding:8px;">Jupyter 内嵌播放器</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="api-algorithms">内置算法库（gpuqviz.algorithms）</h2>
+    <p>12 个经典量子算法电路构建器，每种算法返回 <code>QuantumCircuit</code>（qiskit）、<code>QProg</code>（pyqpanda）或 <code>list[Gate]</code>（numpy）：</p>
+    <pre><code>from gpuqviz.algorithms import grover, qft, bell
+from gpuqviz import export_html
+
+qc = grover(n=3, marked=0b101, iterations=2)
+export_html(circuit=qc, out="out/grover.html", steps=200)
+
+# numpy 路径（不需要 qiskit）
+gates = qft(n=3, engine="numpy")</code></pre>
+    <table style="width:100%;border-collapse:collapse;font-size:0.88rem;">
+      <thead><tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:6px;">算法</th><th style="text-align:left;padding:6px;">函数</th><th style="text-align:left;padding:6px;">类别</th><th style="text-align:right;padding:6px;">qubit</th></tr></thead>
+      <tbody>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px;">Bell 态</td><td style="padding:6px;"><code>bell()</code></td><td style="padding:6px;">基础态</td><td style="padding:6px;text-align:right;">2</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px;">GHZ 态</td><td style="padding:6px;"><code>ghz(n=3)</code></td><td style="padding:6px;">基础态</td><td style="padding:6px;text-align:right;">3</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px;">均匀叠加</td><td style="padding:6px;"><code>superposition(n=3)</code></td><td style="padding:6px;">基础态</td><td style="padding:6px;text-align:right;">3</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px;">Grover 搜索</td><td style="padding:6px;"><code>grover(n=3, marked=0b101)</code></td><td style="padding:6px;">搜索</td><td style="padding:6px;text-align:right;">3</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px;">量子傅里叶变换</td><td style="padding:6px;"><code>qft(n=3)</code></td><td style="padding:6px;">变换</td><td style="padding:6px;text-align:right;">3</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px;">量子相位估计</td><td style="padding:6px;"><code>phase_estimation(n_count=3, theta=0.375)</code></td><td style="padding:6px;">估计</td><td style="padding:6px;text-align:right;">4</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px;">Deutsch-Jozsa</td><td style="padding:6px;"><code>deutsch_jozsa(oracle_type="balanced", n=3)</code></td><td style="padding:6px;">查询复杂度</td><td style="padding:6px;text-align:right;">4</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px;">Bernstein-Vazirani</td><td style="padding:6px;"><code>bernstein_vazirani(secret="101")</code></td><td style="padding:6px;">查询复杂度</td><td style="padding:6px;text-align:right;">3</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px;">量子隐形传态</td><td style="padding:6px;"><code>teleportation()</code></td><td style="padding:6px;">通信</td><td style="padding:6px;text-align:right;">3</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px;">超密编码</td><td style="padding:6px;"><code>superdense(message="11")</code></td><td style="padding:6px;">通信</td><td style="padding:6px;text-align:right;">2</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px;">Simon 算法</td><td style="padding:6px;"><code>simon(s="01")</code></td><td style="padding:6px;">查询复杂度</td><td style="padding:6px;text-align:right;">4</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px;">量子随机游走</td><td style="padding:6px;"><code>quantum_walk(n=3, steps=3)</code></td><td style="padding:6px;">游走</td><td style="padding:6px;text-align:right;">3</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="api-cli">CLI 命令</h2>
+    <pre><code>gpuqviz env                           # 环境能力自检
+gpuqviz render scene.json -o out.mp4  # JSON 场景出片
+gpuqviz export scene.json -o viewer.html   # 交互式播放器导出
+gpuqviz preview scene.json            # 实时预览
+gpuqviz demo --list                   # 列出内置算法
+gpuqviz demo --algo grover            # 一行命令演示
+gpuqviz demo --algo qft --format mp4  # 指定输出格式
+gpuqviz demo --algo bell --engine pyqpanda  # 切换引擎</code></pre>
+
+
+    <h2 id="pro-visualizer">ProVisualizer 门面</h2>
+    <p>专业轨道的链式入口：电路 → （噪声）演化 → 分析 → 导出，一条调用链完成。
+    <code>report()</code> 的每个数字都来自对拍锁定的 analysis 模块
+    （与 qiskit.quantum_info / AerSimulator 交叉验证，容差 1e-10 / 1e-6）。</p>
+    <pre><code>from qiskit import QuantumCircuit
+from gpuqviz import ProVisualizer
+from gpuqviz.noise import depolarizing
+
+qc = QuantumCircuit(2)
+qc.h(0); qc.cx(0, 1)
+
+viz = (ProVisualizer(circuit)
+       .with_shots(shots=4096, seed=42)          # shot 采样（可复现）
+       .with_noise(("depolarizing", 0.05))       # 含噪演化（密度矩阵路径）
+       .analyze(pauli=["IZZ", "ZII"], entanglement=True))
+
+report = viz.report()
+print(report.counts)              # 测量计数（Counts，可导出 CSV/JSON）
+print(report.entanglement)        # 纠缠报告（熵 / 互信息 / negativity）
+print(report.pauli)               # Pauli 串期望
+viz.export_video("out.mp4")       # 含噪 → 自动走密度矩阵渲染路径
+viz.export_frame("fig.png")</code></pre>
+    <p>门来源三选一：<code>circuit=</code>（qiskit）、<code>template=…, bindings=…</code>
+    （参数化模板）、<code>gates=</code>（原生 Gate 列表）。</p>
+
+    <h2 id="pro-measurement">测量统计</h2>
+    <pre><code>from gpuqviz.analysis import exact_probs, sample_counts, state_table
+
+p = exact_probs(qc)                          # 精确概率（无采样误差）
+counts = sample_counts(qc, shots=100_000, seed=7, qubits=[0, 1])
+counts.probs                                 # 经验频率
+counts.marginal([0])                         # 边际分布（位串 q_max…q_min）
+counts.to_csv("counts.csv")                  # 导出
+
+table = state_table(qc)                      # 全基矢精确账本
+table.rows(min_prob=1e-3)                    # 振幅 / 概率 / 相位（降序）
+table.to_csv("state.csv")</code></pre>
+    <p><code>sample_counts</code> 使用 numpy PCG64（同 seed 逐位可复现）；
+    大规模场景传 <code>backend="gpu"</code> 走 cupy 批量采样
+    （n=24、shots=10⁶ 归约核心 0.125s，见 P5.1）。</p>
+
+    <h2 id="pro-analysis">度量与纠缠分析</h2>
+    <pre><code>from gpuqviz.analysis import (purity, linear_entropy, fidelity,
+                              pauli_expectation, entanglement_summary,
+                              schmidt_coefficients)
+
+purity(rho)                        # Tr ρ²（纯态 1）
+pauli_expectation(psi, "IZZ")      # Pauli 串期望（左起 = 最高位 qubit）
+fidelity(psi_a, psi_b)             # 纯纯 / 纯混 / 混混（Uhlmann）三路
+
+rep = entanglement_summary(psi)    # 一次算全
+rep.single_entropy                 # 每 qubit 纠缠熵（bit）
+rep.mutual_info                    # 两两互信息矩阵
+rep.negativity                     # 部分转置负性（2-qubit 可分性判据）
+rep.strongest_pair()               # 互信息最强的 qubit 对
+rep.to_dict()                      # 结构化导出</code></pre>
+    <p>所有量的数学定义见 <code>docs/conventions.md</code>（von Neumann 熵、
+    线性熵、Schmidt 分解……），由 <code>tests/cross_validation/</code> 的
+    契约测试对拍 qiskit 参考实现锁定——没有对拍的分析量不允许合入。</p>
+
+    <h2 id="pro-noise">噪声与开放系统</h2>
+    <pre><code>from gpuqviz.noise import (depolarizing, amplitude_damping,
+                           phase_damping, thermal_relaxation,
+                           evolve_density, tensor_channels)
+from gpuqviz.state import DensityMatrix
+
+# Kraus 通道库（参数约定与 qiskit Aer 同名一致，对拍 ≤1e-10）
+ops = depolarizing(0.05)                    # E(ρ) = (1-λ)ρ + λI/2
+ops = amplitude_damping(0.3)                # T1 弛豫
+ops = thermal_relaxation(t1=100, t2=50, time=20)
+
+# 密度矩阵演化：每门后施加噪声（门宽自动匹配）
+def noise(gate, gi):
+    nq = len(gate.targets) + len(gate.controls)
+    return tensor_channels([depolarizing(0.02)] * nq)
+
+frames = evolve_density(3, gates, noise=noise)   # ρ 关键帧列表
+rho = DensityMatrix(frames[-1])
+rho.purity(), rho.bloch(), rho.is_valid()</code></pre>
+    <p>渲染端零改动：去极化/弛豫的 Bloch 矢量收缩由"模长 = 纯度"的既有语义
+    天然呈现；<code>DensityMatrixTrack</code> 以 Hinton 图逐帧展示 ρ 的
+    相干性衰减（对角 = 概率，方块面积 ∝ |ρ_ij|，颜色按实部符号）。</p>
+
+    <h2 id="pro-sweep">参数化电路与扫参</h2>
+    <pre><code>from gpuqviz.parameters import CircuitTemplate, Parameter, sweep
+
+tmpl = CircuitTemplate(2, [
+    {"name": "RY", "targets": [0], "params": [Parameter("theta")]},
+    {"name": "CX", "targets": [1], "controls": [0]},
+])
+gates = tmpl.bind(theta=0.7)             # 绑定 → 具体 Gate 列表
+
+result = sweep(tmpl, "theta", np.linspace(0, np.pi, 41),
+               observables=["IZ", "ZZ"]) # 沿 θ 扫参 + Pauli 期望曲线
+result.states                            # 逐值末态（VQE/QAOA 轨迹回放）
+result.entropy                           # 逐值纠缠熵
+result.to_csv("sweep.csv")               # 参数/纯度/熵/观测量 数据表</code></pre>
+    <p>扫参逐值独立演化并计算全部分析量；⟨Z₀⟩ 等期望与解析公式
+    逐点对拍至机器精度（示例 <code>examples/sweep_demo.py</code>）。</p>
+
+    <h2 id="pro-conditional">中途测量与条件门</h2>
+    <pre><code>from gpuqviz.circuits import Gate, Condition, evolve_gates_branches
+
+gates = [
+    Gate(name="H", targets=[0]),
+    Gate(name="MEASURE", targets=[0], params=[0]),          # q0 → c0
+    Gate(name="X", targets=[1], condition=Condition(clbit=0, value=1)),
+]
+ev = evolve_gates_branches(2, gates, branch={0: 1})  # 确定性分支
+ev.frames            # 关键帧（测量塌缩后按分支演化）
+ev.measurements      # [(clbit, 塌缩值, 塌缩前概率), ...]</code></pre>
+    <p>确定性经典反馈模型：MEASURE 按分支值塌缩（非随机采样），
+    条件门按 <code>branch[clbit] == value</code> 施加或跳过。
+    隐形传态的全部分支终点态一致（对拍 qiskit 投影算符 +
+    Aer IfElseOp，示例 <code>examples/teleport_demo.py</code>）。</p>
+
+    <h2 id="pro-mps">MPS 大规模后端</h2>
+    <pre><code>from gpuqviz.mps import evolve_mps
+
+result = evolve_mps(20, gates, chi_max=8)   # 20+ qubit，χ 截断
+bloch = result.bloch_keys()                 # (K, n, 3) 约化分析量
+result.n_swaps                              # 非相邻门 SWAP 路由统计
+
+# 约化分析量直接喂渲染层（全程无 2^20 态矢量）
+np.savez("bloch.npz", bloch=bloch)
+scene = Scene(tracks=[BlochVectorsTrack(states_path="bloch.npz")])
+gpuqviz.render(scene, out="mps.mp4")
+
+ent = result.frames[-1].entanglement_entropy(cut=10)  # 割纠缠谱（MPS 免费给出）</code></pre>
+    <p>低纠缠电路（variational / brickwork 类）在 χ 截断下高精度：
+    精确 vs χ=8 的 Bloch 偏差为 0（示例 <code>examples/mps_demo.py</code>，
+    20 qubit 79 门）。</p>
+
+    <h2 id="pro-lod">大规模渲染 LOD</h2>
+    <table style="width:100%;border-collapse:collapse;font-size:0.9rem;">
+      <thead><tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:8px;">渲染器</th><th style="text-align:left;padding:8px;">LOD 参数</th><th style="text-align:left;padding:8px;">作用</th></tr></thead>
+      <tbody>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;">HistogramTrack</td><td style="padding:8px;"><code>show_others=True</code></td><td style="padding:8px;">top-k 之外的概率聚合为一根 "others" 柱</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;">EntanglementTrack</td><td style="padding:8px;"><code>max_edges=64</code></td><td style="padding:8px;">边数按互信息保留最强者（O(n²) 边在大 n 下的可读性）</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;">DensityMatrixTrack</td><td style="padding:8px;"><code>min_frac=0.02</code></td><td style="padding:8px;">|ρ_ij| 低于阈值的 Hinton 方块跳过</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="algo-bell">Bell 态与 GHZ 态</h2>
+    <p><strong>Bell 态</strong> |Φ+⟩ = (|00⟩ + |11⟩)/√2 是最简单的两 qubit 纠缠态。电路：H(q0) → CX(q0, q1)。H 门将 q0 置入叠加态 (|0⟩ + |1⟩)/√2，CX 门以 q0 为控制位翻转 q1，产生纠缠。</p>
+    <p><strong>GHZ 态</strong> (|0…0⟩ + |1…1⟩)/√2 是 Bell 态的多 qubit 推广。电路：H(q0) → 级联 CX(q0,q1) → CX(q1,q2) → …。n 个 qubit 的 GHZ 态是真正的多体纠缠态。</p>
+
+    <h2 id="algo-grover">Grover 搜索</h2>
+    <p>Grover 算法在无序数据库中以 O(√N) 复杂度搜索标记项，相比经典 O(N) 提供二次加速。核心是振幅放大：交替应用 oracle（标记目标态的相位翻转）和 diffuser（关于 |+⟩ 的反射），将目标态的振幅放大。</p>
+    <p>oracle = X(unmark) → H(target) → MCX(controls, target) → H(target) → X(unmark)；diffuser = H(all) → X(all) → H(target) → MCX → H(target) → X(all) → H(all)。迭代次数 ≈ π/4 · √(2^n)。</p>
+
+    <h2 id="algo-qft">量子傅里叶变换</h2>
+    <p>QFT 将量子态从计算基变换到频率基，是许多量子算法（QPE、Shor）的核心子程序。对 n 个 qubit：逐 qubit 从 MSB（q_{n-1}）开始，H(i) + 级联受控相位旋转 CP(π/2^k)，最后 SWAP 反转 qubit 顺序。</p>
+    <p>关键性质：QFT† ∘ QFT = I（逆变换完全还原原始态），在我们的演示中可以直观看到 Bloch 向量从初始态出发，经 QFT 变换后经 QFT† 完全回到原位。</p>
+
+    <h2 id="algo-qpe">量子相位估计</h2>
+    <p>QPE 估计幺正算符 U 的本征值相位。电路：计数寄存器 H(all) → 受控 U^(2^k) 级联 → 逆 QFT → 测量计数寄存器。对于 U = RZ(2πθ)，θ = p/2^n_count 时测量结果恰为 p 的二进制表示。</p>
+
+    <h2 id="algo-dj-bv">Deutsch-Jozsa / Bernstein-Vazirani</h2>
+    <p><strong>Deutsch-Jozsa</strong>：判断函数 f: {0,1}^n → {0,1} 是常数还是平衡，仅用一次查询。balanced oracle 用 CX(q_i, aux) 让 f(x) = x_0；constant oracle 用 X(aux) 让 f(x) = 1。</p>
+    <p><strong>Bernstein-Vazirani</strong>：恢复隐藏字符串 s（f(x) = s·x mod 2），同样仅一次查询。oracle = 逐 qubit CX(s[i]==1, aux)。末态即为 |s⟩。</p>
+
+    <h2 id="algo-comm">量子隐形传态 / 超密编码</h2>
+    <p><strong>隐形传态</strong>：利用 Bell pair 将 Alice 的未知量子态 |ψ⟩ 传给 Bob，无需物理传输 qubit。电路：Bell pair 制备 → Alice 对 |ψ⟩ 和 Bell pair 做 CX + H → 测量 → 经典通信 → Bob 做受控校正（CX + CZ）。q2 末态 = |ψ⟩。</p>
+    <p><strong>超密编码</strong>：用 1 个 qubit 传输 2 个经典比特。Bell pair → Alice 按 message 做编码（X/Z 组合）→ 发送 1 qubit → Bob 做 CX + H 解码 → 测量得 message。</p>
+
+    <h2 id="backends">GL / CPU 后端</h2>
+    <p>gpuqviz 有两个后端：<strong>gl</strong>（默认，需要 OpenGL 3.3）使用 GLSL 着色器离屏渲染，支持完整功能；<strong>cpu</strong>（自动降级）用 numpy + numba 软光栅，无 GL 环境下仍可运行（limited 样式）。</p>
+    <p>通过 <code>GPUQVIZ_BACKEND</code> 环境变量强制指定：<code>auto</code>（默认）、<code>gl</code>、<code>cpu</code>。<code>gpuqviz env</code> 输出各项能力状态与推荐后端。</p>
+
+    <h2 id="nvenc">NVENC 硬编码</h2>
+    <p>NVIDIA GPU 可用 NVENC 硬编码：cupy RGBA → GPU NV12 kernel → NVENC，全程不下显存。不可用时自动回退 PyAV 的 libx264 软编码，只影响速度不影响功能。</p>
+
+    <h2 id="benchmarks">性能基准</h2>
+    <table style="width:100%;border-collapse:collapse;font-size:0.92rem;">
+      <thead><tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:8px;">场景</th><th style="text-align:right;padding:8px;">gl 后端</th><th style="text-align:right;padding:8px;">cpu 软光栅</th></tr></thead>
+      <tbody>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;">Bell 态 3s@30fps 720p</td><td style="padding:8px;text-align:right;color:var(--accent);">3.9s</td><td style="padding:8px;text-align:right;color:var(--accent2);">112.8s</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="faq">常见问题</h2>
+
+    <h3>NVENC 会话打不开？</h3>
+    <p>部分驱动/显卡组合（如 Pascal + R581+ 安全驱动）会报 <code>nvEncOpenEncodeSessionEx error 2</code>。库自动回退 libx264，只影响速度不影响功能。</p>
+
+    <h3>Linux 无显示环境能跑吗？</h3>
+    <p>能。moderngl 走 EGL headless 渲染，无需 X server（需安装 libegl）。</p>
+
+    <h3>态矢量数据太大了？</h3>
+    <p>热图与状态显示复杂度随 2^n 增长，建议 n ≤ 10；更大的系统请渲染约化密度矩阵或局域观测量。Jupyter <code>show()</code> 大 payload 自动降级。</p>
+
+  </div>
+</div>
+
+<footer class="footer">
+  <div class="container">
+    <p>Apache-2.0 · <a href="https://github.com/Poplavis/gpuqviz" target="_blank">GitHub</a> · Powered by gpuqviz</p>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

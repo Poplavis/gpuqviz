@@ -115,7 +115,12 @@ def _slice_circuit_by_depth(circuit, d0: int, d1: int):
 
 
 def bloch_vectors(states, n_qubits: int | None = None) -> "np.ndarray":
-    """关键帧态矢量序列 → (steps, n_qubits, 3) Bloch 向量。
+    """关键帧序列 → (steps, n_qubits, 3) Bloch 向量。
+
+    输入两种形态：
+    - 纯态 (S, 2**n)：约化 ρ_q 由 |ψ⟩⟨ψ| 批量外积得到；
+    - 密度矩阵 (S, 2**n, 2**n)：约化 ρ_q 由批量 partial trace 得到
+      （含噪演化路径，noise.evolve_density 的输出）。
 
     向量化实现：把所有帧堆成批张量一次性 einsum，禁止 Python 层逐帧求迹。
     输入可以是 numpy/cupy 数组（回 GPU 计算）或 qiskit Statevector 列表。
@@ -123,19 +128,34 @@ def bloch_vectors(states, n_qubits: int | None = None) -> "np.ndarray":
     if n_qubits is None:
         n_qubits = _infer_qubits(states[0])
 
-    # 统一转 numpy 批张量 (S, 2**n)；GPU 数组会先拷回 CPU —— 本函数数值
-    # 计算用 einsum 向量化，规模 S×4^n 在 CPU 上也足够快，S3 若成瓶颈再迁移
-    batch = np.stack([_to_array(s) for s in states])  # (S, 2**n)
+    # 统一转 numpy 批张量 (S, 2**n) 或 (S, 2**n, 2**n)；GPU 数组先拷回 CPU
+    batch = np.stack([_to_array_any(s) for s in states])
 
-    # 重排成 (S, n, 2, 2^(n-1))：qubit i 的振幅对
-    batch = batch.reshape((batch.shape[0], *([2] * n_qubits)))  # (S, 2, 2, ..., 2)
-    # 转为 einsum 友好的形状：对每个 qubit i，把该轴拆为行/列指标
     xps = _xp(batch)
     einsum = cp.einsum if xps is cp else np.einsum
-
     pauli = cp.asarray(_PAULI) if xps is cp else _PAULI
 
+    is_density = batch.ndim == 3
     out = np.zeros((batch.shape[0], n_qubits, 3), dtype=np.float64)
+
+    if is_density:
+        # ρ 的 row/col 大端 reshape：row 轴 a ↔ qubit n−1−a
+        S, d, _ = batch.shape
+        R = batch.reshape((S,) + (2,) * n_qubits + (2,) * n_qubits)
+        half = 2 ** (n_qubits - 1)
+        for i in range(n_qubits):
+            row_ax, col_ax = 1 + (n_qubits - 1 - i), 1 + n_qubits + (n_qubits - 1 - i)
+            # 移轴后剩余轴保持原相对顺序：其余 row 连续在前、col 连续在后，
+            # 故 reshape 成 (rest_row, rest_col) 后按指标配对求迹
+            moved = np.moveaxis(R, [row_ax, col_ax], [1, 2])
+            moved = moved.reshape(S, 2, 2, half, half)
+            rho_q = np.einsum("sabii->sab", moved)  # 批量 partial trace
+            expvals = einsum("sab,pba->sp", rho_q, pauli).real
+            out[:, i, :] = np.asarray(cp.asnumpy(expvals) if xps is cp else expvals)
+        return cp.asarray(out) if xps is cp else out
+
+    # 纯态路径（原实现）
+    batch = batch.reshape((batch.shape[0], *([2] * n_qubits)))  # (S, 2, 2, ..., 2)
     for i in range(n_qubits):
         # qiskit 小端序：reshape 后轴 1+j 对应 qubit n-1-j，
         # 因此 qubit i 位于轴 1+(n-1-i)
@@ -151,9 +171,23 @@ def bloch_vectors(states, n_qubits: int | None = None) -> "np.ndarray":
     return result
 
 
+def _to_array_any(state) -> "np.ndarray":
+    """态矢量或密度矩阵 → numpy 复数数组（保持维数）。"""
+    data = getattr(state, "data", state)
+    arr = cp.asnumpy(data) if cp is not None and isinstance(data, cp.ndarray) else np.asarray(data)
+    arr = arr.astype(np.complex128, copy=False)
+    if arr.ndim == 1 or (arr.ndim == 2 and arr.shape[0] == arr.shape[1]):
+        return arr
+    return arr.reshape(-1)
+
+
 def _infer_qubits(state_or_vec) -> int:
     data = getattr(state_or_vec, "data", state_or_vec)
-    dim = int(np.prod(np.asarray(data).shape)) if np.asarray(data).ndim else int(np.asarray(data).shape[0])
+    a = np.asarray(data)
+    if a.ndim == 2 and a.shape[0] == a.shape[1]:
+        dim = a.shape[0]  # 密度矩阵：维数 = 2**n
+    else:
+        dim = int(np.prod(a.shape)) if a.ndim else int(a.shape[0])
     n = int(round(np.log2(dim)))
     if 2**n != dim:
         raise ValueError(f"state dimension {dim} is not a power of 2")

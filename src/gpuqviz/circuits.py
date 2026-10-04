@@ -36,6 +36,14 @@ _MATRICES = {
 _BASE_NAMES = frozenset(_MATRICES) | {"RX", "RY", "RZ", "U", "U3", "U2"}
 
 
+@dataclass(frozen=True)
+class Condition:
+    """经典条件：经典位 clbit 的值 == value 时门才施加（P3.2 确定性反馈）。"""
+
+    clbit: int
+    value: int = 1
+
+
 @dataclass
 class Gate:
     """框架无关的门。
@@ -50,6 +58,7 @@ class Gate:
     controls: list[int] = field(default_factory=list)
     params: list[float] = field(default_factory=list)
     matrix: np.ndarray | None = field(default=None, repr=False, compare=False)
+    condition: Condition | None = field(default=None, compare=False)
 
 
 def _as_le(state: np.ndarray) -> np.ndarray:
@@ -186,6 +195,102 @@ def evolve_gates(n_qubits: int, gates: list[Gate]) -> list[np.ndarray]:
         if gate.name.upper() != "BARRIER":
             snapshots.append(state)
     return snapshots
+
+
+# --------------------------------------------------------------------------- #
+# 中途测量 / 重置 / 条件门（P3.2 确定性经典反馈）
+# --------------------------------------------------------------------------- #
+
+@dataclass
+class BranchEvolution:
+    """带经典反馈演化的结果。
+
+    frames: [初态, 每个非 barrier 门后的态]（与 evolve_gates 同构）；
+    measurements: [(clbit, 塌缩值, 塌缩前概率), ...] 按发生顺序。
+    """
+
+    frames: list[np.ndarray]
+    measurements: list[tuple[int, int, float]]
+
+
+def _collapse_statevector(psi: np.ndarray, n_qubits: int,
+                          qubit: int, value: int) -> tuple[np.ndarray, float]:
+    """把 qubit 投影到计算基 |value⟩ 并归一化。返回 (新态, 塌缩前概率)。
+
+    输出保持全长 2**n（固定 qubit 位 = value，其余振幅置零后归一），
+    与演化关键帧的形状契约一致。
+    概率为零说明该分支不可能发生。
+    """
+    idx = np.arange(psi.size)
+    mask = ((idx >> qubit) & 1) == value  # 小端序：位 qubit = value 的振幅
+    kept = psi[mask]
+    prob = float(np.vdot(kept, kept).real)
+    if prob < 1e-12:
+        raise ValueError(
+            f"branch has zero probability: qubit {qubit} → {value}")
+    out = np.zeros_like(psi)
+    out[mask] = kept / np.sqrt(prob)
+    return out, prob
+
+
+def evolve_gates_branches(n_qubits: int, gates: list[Gate],
+                          branch: dict[int, int]) -> BranchEvolution:
+    """带中途测量/重置/条件门的单分支确定性演化（P3.2）。
+
+    branch: {clbit: 期望测量结果}——MEASURE 门按分支值塌缩（非随机采样）；
+    条件门（Gate.condition）当 branch[condition.clbit] == condition.value
+    时施加，否则按恒等跳过。分支未覆盖的 clbit 触发报错。
+
+    与 Aer 的对拍：tests/cross_validation/test_conditional.py
+    （IfElseOp + density_matrix，确定概率分支下逐元素一致）。
+    """
+    state = np.zeros(2 ** n_qubits, dtype=np.complex128)
+    state[0] = 1.0
+    frames = [state]
+    measurements: list[tuple[int, int, float]] = []
+
+    for gate in gates:
+        name = gate.name.upper()
+        if name == "BARRIER":
+            continue
+
+        if name == "MEASURE":
+            if len(gate.targets) != 1 or not gate.params:
+                raise ValueError("MEASURE 需要 targets=[qubit], params=[clbit]")
+            clbit = int(gate.params[0])
+            if clbit not in branch:
+                raise ValueError(
+                    f"branch missing clbit {clbit} (measure needs a "
+                    "deterministic branch under the P3.2 model)")
+            value = int(branch[clbit])
+            state, prob = _collapse_statevector(
+                state, n_qubits, gate.targets[0], value)
+            measurements.append((clbit, value, prob))
+            frames.append(state)
+            continue
+
+        if name == "RESET":
+            state, prob = _collapse_statevector(
+                state, n_qubits, gate.targets[0], 0)
+            frames.append(state)
+            continue
+
+        if gate.condition is not None:
+            clbit = gate.condition.clbit
+            if clbit not in branch:
+                raise ValueError(
+                    f"conditional gate {gate.name} reads clbit {clbit} "
+                    "which the branch does not specify")
+            if int(branch[clbit]) != gate.condition.value:
+                continue  # 条件不成立 → 恒等
+            state = apply_gate(state, gate)
+            frames.append(state)
+            continue
+
+        state = apply_gate(state, gate)
+        frames.append(state)
+
+    return BranchEvolution(frames=frames, measurements=measurements)
 
 
 def sample_snapshots(snapshots: list[np.ndarray], steps: int) -> list[np.ndarray]:
