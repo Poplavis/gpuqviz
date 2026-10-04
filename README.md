@@ -121,6 +121,19 @@ render(scene, out="out/scene.mp4")
 态矢量数据准备：`np.savez("states.npz", states=key_states)`，形状 `(K, 2**n)` complex，
 K 为关键帧数。场景可持久化为 JSON：[examples/scene.json](examples/scene.json)。
 
+### OpenQASM 直接输入
+
+```bash
+gpuqviz qasm bell.qasm                          # 交互播放器
+gpuqviz qasm bell.qasm --format mp4 -o out.mp4  # 视频
+gpuqviz qasm "OPENQASM 2.0; include \"qelib1.inc\";
+qreg q[2]; h q[0]; cx q[0],q[1];"               # 内联文本
+```
+
+Python 侧所有 `circuit=` 入口（render_* / export_html / show / ProVisualizer）
+无差别接受 QASM 文本或 `.qasm` 文件路径；OpenQASM 3 需可选依赖
+`pip install qiskit-qasm3-import`。
+
 ### 交互式 3D 播放器（单文件 HTML）
 
 ```python

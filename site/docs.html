@@ -115,7 +115,8 @@ h.save("other.html")  # 另存 HTML</code></pre>
         <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;"><code>render_heatmap_video(states=…, basis=…, colormap=…)</code></td><td style="padding:8px;">概率/相位/幅值热图 MP4</td></tr>
         <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;"><code>render_frame(circuit=…, t=0.5, out=…)</code></td><td style="padding:8px;">单帧 PNG（出版级静态图）</td></tr>
         <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;"><code>export_html(circuit=…, out=…, title=…)</code></td><td style="padding:8px;">交互式 3D 播放器 HTML</td></tr>
-        <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;"><code>show(circuit=…)</code></td><td style="padding:8px;">Jupyter 内嵌播放器</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;"><code>show(circuit=…)</code></td><td style="padding:8px;">Jupyter 内嵌播放器（返回 Path 兼容句柄，含 .figure/.widget）</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;"><code>load_qasm(path_or_text)</code></td><td style="padding:8px;">OpenQASM 2/3 → 电路；所有 <code>circuit=</code> 入口可直接吃 QASM 文本/文件（CLI：<code>gpuqviz qasm</code>）</td></tr>
       </tbody>
     </table>
 

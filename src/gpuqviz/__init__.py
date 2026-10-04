@@ -1,6 +1,6 @@
 """gpuqviz: GPU-accelerated quantum state evolution visualization and video rendering."""
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 from .api import render, render_bloch_video, render_frame, render_heatmap_video  # noqa: E401
 from .env import report_env  # noqa: E401
@@ -18,6 +18,7 @@ from .state import DensityMatrix, Statevector  # noqa: E401
 # 分析层子模块（专业轨道：测量统计 / 度量 / 纠缠，不依赖渲染）
 from . import analysis  # noqa: E401
 from .pro import ProReport, ProVisualizer  # noqa: E401
+from .adapters import load_qasm  # noqa: E401
 
 # 算法库子模块（惰性加载，不依赖 qiskit/pyqpanda）
 from . import algorithms  # noqa: E401
@@ -42,4 +43,4 @@ __all__ = ["__version__", "report_env", "render_bloch_video", "render_heatmap_vi
            "TextOverlay", "TextPosition",
            "Scene", "BlochTrack", "HeatmapTrack", "HistogramTrack",
            "EntanglementTrack", "DensityMatrixTrack", "BlochVectorsTrack",
-           "Camera", "ProVisualizer", "ProReport"]
+           "Camera", "ProVisualizer", "ProReport", "load_qasm"]

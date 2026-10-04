@@ -150,6 +150,72 @@ def frame(scene_file: Path = typer.Option(None, "--scene", exists=True, readable
     typer.echo(f"frame -> {path}")
 
 
+
+@app.command()
+def qasm(
+    source: str = typer.Argument(...,
+                                 help="OpenQASM 文件路径（.qasm/.qasm3），或以 OPENQASM 开头的内联文本"),
+    fmt: str = typer.Option("html", "--format", "-f",
+                            help="输出格式：html（交互播放器）/ mp4（视频）/ png（静态帧）"),
+    out: Path = typer.Option(None, "--out", "-o",
+                             help="输出路径（默认 out/qasm.<ext>）"),
+    steps: int = typer.Option(120, "--steps", help="关键帧数"),
+    fps: float = typer.Option(30.0, "--fps"),
+    seconds: float = typer.Option(None, "--seconds", help="视频时长（秒）"),
+    time: float = typer.Option(0.5, "--time", "-t", min=0.0, max=1.0,
+                               help="PNG 静态帧归一化时刻"),
+    title: str = typer.Option("OpenQASM 电路", "--title"),
+    trail: bool = typer.Option(False, "--trail", help="Bloch 球轨迹拖尾"),
+) -> None:
+    """OpenQASM 2/3 电路直接可视化（文件路径或内联文本）。
+
+    
+    示例::
+
+        gpuqviz qasm bell.qasm                          # 交互播放器
+        gpuqviz qasm bell.qasm --format mp4 -o out.mp4  # 视频
+        gpuqviz qasm bell.qasm --format png -t 0.8      # 静态帧
+        gpuqviz qasm "OPENQASM 2.0; include \"qelib1.inc\";
+        qreg q[2]; h q[0]; cx q[0],q[1];"               # 内联文本
+    """
+    from .adapters import load_qasm
+
+    fmt = fmt.lower()
+    if fmt not in ("html", "mp4", "png"):
+        typer.echo(f"不支持的格式 {fmt!r}；可选 html / mp4 / png")
+        raise typer.Exit(1)
+    if out is None:
+        out = Path(f"out/qasm.{fmt}")
+
+    typer.echo(f"解析 OpenQASM（{('文件: ' + source) if Path(source).exists() else '内联文本'}）")
+    try:
+        qc = load_qasm(source)
+    except ImportError as e:
+        typer.echo(str(e))
+        raise typer.Exit(1)
+    except Exception as e:  # noqa: BLE001
+        typer.echo(f"QASM 解析失败：{e}")
+        raise typer.Exit(1)
+    typer.echo(f"电路：{qc.num_qubits} qubit, {len(qc.data)} 指令")
+
+    if fmt == "html":
+        from .export_html import export_html as _export
+
+        path = _export(circuit=qc, out=out, steps=steps, fps=fps,
+                       duration=seconds or steps / 30.0, title=title)
+    elif fmt == "mp4":
+        from .api import render_bloch_video as _render
+
+        path = _render(circuit=qc, steps=steps, fps=fps,
+                       seconds=seconds or steps / 30.0, out=out,
+                       title=title, trail=trail)
+    else:  # png
+        from .api import render_frame as _frame
+
+        path = _frame(circuit=qc, t=time, out=out, scale=2)
+    typer.echo(f"qasm -> {path}")
+
+
 @app.command()
 def demo(
     algo: str = typer.Option(None, "--algo", "-a",

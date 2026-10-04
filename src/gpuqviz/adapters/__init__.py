@@ -116,12 +116,66 @@ def _translate_circuit(circuit) -> tuple[int, list]:
     return n, gates
 
 
+def load_qasm(source, version: str = "auto"):
+    """OpenQASM 2/3 文本或文件 → qiskit QuantumCircuit（Roadmap ②）。
+
+    source：以 "OPENQASM" 开头的字符串视为 QASM 文本；
+    否则视为文件路径（.qasm / .qasm3）。
+    version："auto" 按 source 头部声明识别（OPENQASM 3 → qasm3，其余 qasm2），
+    或显式指定 "2" / "3"。QASM3 需要可选依赖 qiskit-qasm3-import。
+    """
+    from pathlib import Path
+
+    text = str(source)
+    is_file = not text.lstrip().startswith("OPENQASM")
+    if is_file:
+        path = Path(source)
+        text = path.read_text(encoding="utf-8")
+
+    if version == "auto":
+        first = text.lstrip().splitlines()[0].strip() if text.strip() else ""
+        version = "3" if "OPENQASM 3" in first else "2"
+
+    import qiskit
+
+    if version == "3":
+        try:
+            if is_file:
+                return qiskit.qasm3.load(str(source))
+            return qiskit.qasm3.loads(text)
+        except ImportError as e:  # pragma: no cover - 依赖探测分支
+            raise ImportError(
+                "OpenQASM 3 import requires the optional parser: "
+                "pip install qiskit-qasm3-import"
+            ) from e
+    if is_file:
+        return qiskit.qasm2.load(str(source))
+    return qiskit.qasm2.loads(text)
+
+
+def resolve_circuit_input(circuit):
+    """QASM 字符串 / 文件路径 → qiskit QuantumCircuit；其他对象原样透传。
+
+    判据：str/Path 且（后缀 .qasm/.qasm3 或内容以 OPENQASM 开头）。
+    使 render_* / export_html / show / ProVisualizer 的 circuit= 入口
+    无差别接受 QASM 输入。
+    """
+    from pathlib import Path
+
+    if isinstance(circuit, (str, Path)):
+        s = str(circuit)
+        if s.lstrip().startswith("OPENQASM") or s.lower().endswith((".qasm", ".qasm3")):
+            return load_qasm(s)
+    return circuit
+
+
 def qiskit_to_gates(circuit) -> tuple[int, list]:
     """qiskit QuantumCircuit → (n_qubits, Gate 列表)，框架无关路径的入口。
 
     兜底策略：出现无法翻译的指令时，transpile 到基础门集后重试一次。
     电路的末尾测量自动剔除；中途 measure/reset 按层边界处理。
     """
+    circuit = resolve_circuit_input(circuit)  # QASM 字符串/文件直接输入
     circuit = circuit.remove_final_measurements(inplace=False)
     try:
         return _translate_circuit(circuit)
@@ -163,6 +217,7 @@ def to_key_states(circuit, steps: int, machine=None) -> list[np.ndarray]:
     qiskit QuantumCircuit 直接识别；pyqpanda QProg 需要同时传入
     machine=（创建 prog 的虚拟机实例）。
     """
+    circuit = resolve_circuit_input(circuit)  # QASM 字符串/文件直接输入
     # qiskit QuantumCircuit：num_qubits 属性 + data 指令列表
     if hasattr(circuit, "num_qubits") and hasattr(circuit, "data"):
         from ..evolve import sample_circuit
