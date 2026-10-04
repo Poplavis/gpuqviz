@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from gpuqviz.adapters import qiskit_to_gates
-from gpuqviz.circuits import Gate, evolve_gates, sample_snapshots
+from gpuqviz.circuits import evolve_gates, sample_snapshots
 
 qiskit = pytest.importorskip("qiskit")
 
@@ -150,7 +150,6 @@ def _reference_snapshots(circuit):
 
 @pytest.mark.parametrize("name", sorted(_build_matrix().keys()))
 def test_fidelity_vs_qiskit(name):
-    from qiskit.quantum_info import Statevector
 
     circuit = _build_matrix()[name]
     n, gates = qiskit_to_gates(circuit)

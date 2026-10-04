@@ -6,9 +6,8 @@ hypothesis 未安装时的替代方案：固定种子的随机电路批量断言
 """
 
 import numpy as np
-import pytest
 
-from gpuqviz.analysis import exact_probs, fidelity, purity, sample_counts
+from gpuqviz.analysis import exact_probs, fidelity, sample_counts
 from gpuqviz.state import DensityMatrix, Statevector, partial_trace
 
 from qiskit import QuantumCircuit

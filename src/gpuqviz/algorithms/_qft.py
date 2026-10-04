@@ -13,8 +13,6 @@ import numpy as np
 from ._engine import (
     _check_engine,
     _numpy_gates_to_circuit,
-    _pyqpanda_gate,
-    _pyqpanda_prog,
     _qiskit_circuit,
 )
 from ..circuits import Gate

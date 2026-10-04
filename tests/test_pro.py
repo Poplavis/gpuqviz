@@ -112,7 +112,6 @@ def test_noisy_report_shrinks_purity():
 # ---------------------------------------------------------------------------
 
 def test_export_video_smoke(tmp_path):
-    import gpuqviz.backends as _backends
 
     viz = ProVisualizer(circuit=_bell_circuit())
     out = viz.export_video(tmp_path / "pro.mp4", duration=1.0, fps=30)

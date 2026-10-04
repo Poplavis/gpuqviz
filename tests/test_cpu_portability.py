@@ -1,6 +1,5 @@
 """S8 CPU 可移植性测试：无 GL 环境下完整出片能力。"""
 
-import os
 
 import numpy as np
 import pytest
@@ -8,9 +7,7 @@ import pytest
 from gpuqviz.backends import detect_backend, resolve_backend
 from gpuqviz.backends.cpu import (
     SoftRasterContext,
-    SoftRasterBloch,
     SoftRasterHeatmap,
-    _NUMBA_OK,
 )
 
 qiskit = pytest.importorskip("qiskit")

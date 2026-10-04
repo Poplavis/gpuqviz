@@ -6,7 +6,7 @@ from PIL import Image
 
 moderngl = pytest.importorskip("moderngl")
 
-from gpuqviz.api import render_frame
+from gpuqviz.api import render_frame  # noqa: E402  (importorskip 守卫)
 
 
 def _bell_states():

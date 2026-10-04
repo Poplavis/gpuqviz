@@ -19,7 +19,7 @@ from gpuqviz.algorithms import (
 from gpuqviz.circuits import Gate, evolve_gates
 
 qiskit = pytest.importorskip("qiskit")
-from qiskit import QuantumCircuit
+from qiskit import QuantumCircuit  # noqa: E402  (importorskip 守卫)
 
 
 def _fidelity(a, b):
@@ -267,7 +267,6 @@ class TestBernsteinVazirani:
         # 末态输入寄存器 = |101⟩
         # q0=1, q1=0, q2=1 → |101⟩ = 0b101（仅输入寄存器）
         # 辅助 qubit=3，末态索引 = secret_bits | (aux_bit << aux_pos)
-        n = 3
         prob_secret = 0.0
         for i in range(2**4):
             bits = [(i >> b) & 1 for b in range(4)]

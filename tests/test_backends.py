@@ -1,6 +1,5 @@
 """后端一致性测试：cuda(gl) 路径与 cpu 软光栅路径的 Bloch 数值一致。"""
 
-import numpy as np
 import pytest
 
 from gpuqviz.backends import detect_backend

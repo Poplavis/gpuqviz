@@ -8,7 +8,7 @@ from gpuqviz.circuits import (Condition, Gate, evolve_gates_branches)
 qiskit = pytest.importorskip("qiskit")
 from qiskit import ClassicalRegister, QuantumCircuit, QuantumRegister  # noqa: E402
 from qiskit.circuit.controlflow import IfElseOp  # noqa: E402
-from qiskit.quantum_info import Operator, Statevector as QkSV  # noqa: E402
+from qiskit.quantum_info import Statevector as QkSV  # noqa: E402
 
 TOL = 1e-10
 
@@ -30,7 +30,7 @@ def test_collapse_matches_projector():
     """H|0⟩ 测 q0→1：塌缩态 ≡ 归一化的 P₁|+0⟩（qiskit 投影算符参考）。"""
     qc = QuantumCircuit(2)
     qc.h(0)
-    psi = np.asarray(QkSV.from_instruction(qc).data)  # |+0>
+    psi = np.asarray(QkSV.from_instruction(qc).data)  # |+0⟩ 塌缩参考态
 
     gates = [Gate(name="H", targets=[0]),
              Gate(name="MEASURE", targets=[0], params=[0])]
@@ -54,12 +54,13 @@ def test_collapse_n1_edge():
 
 
 def test_reset_prepares_ground():
-    psi = np.asarray(QkSV.from_instruction(
-        QuantumCircuit(2)).data)
-    qc = QuantumCircuit(2)
-    qc.x(0)
-    psi = np.asarray(QkSV.from_instruction(qc).data)
-    ev = evolve_gates_branches(2, [Gate(name="RESET", targets=[0])], branch={})
+    """H|0⟩（叠加态）后 RESET：q0 塌缩回 |0⟩。
+
+    纯态模型的 RESET = 向 |0⟩ 分支投影（与 Aer reset 的耗散通道不同，
+    从确定的 |1⟩ 出发零概率——该极限由噪声模块的 amplitude_damping(1.0) 覆盖）。
+    """
+    gates = [Gate(name="H", targets=[0]), Gate(name="RESET", targets=[0])]
+    ev = evolve_gates_branches(2, gates, branch={})
     assert np.allclose(ev.frames[-1], [1, 0, 0, 0], atol=TOL)
 
 
@@ -131,7 +132,6 @@ def _teleport_gates() -> list[Gate]:
 @pytest.mark.parametrize("b1", [0, 1])
 def test_teleportation_all_branches(b0, b1):
     """任意测量分支下 q2 的约化态都等于初始 ψ（隐形传态的物理判据）。"""
-    params = [0.4, 0.9]  # RZ(0.4)RY(0.9)|0>：任意非平凡单 qubit 态
     ev = evolve_gates_branches(3, _teleport_gates(),
                                branch={0: b0, 1: b1})
     final = ev.frames[-1]
@@ -167,7 +167,7 @@ def test_teleportation_branch_probabilities():
 
 def test_conditional_matches_aer_deterministic_branch():
     """X|0⟩ → 测量（结果确定为 1）→ 条件 CX：与 Aer IfElseOp 末态一致。"""
-    qiskit_aer = pytest.importorskip("qiskit_aer")
+    pytest.importorskip("qiskit_aer")
     from qiskit_aer import AerSimulator
     from qiskit_aer.library import SaveDensityMatrix
 

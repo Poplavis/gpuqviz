@@ -147,7 +147,6 @@ def sweep(template: CircuitTemplate, param: str, values,
         raise ValueError("sweep needs at least one value")
 
     n = template.n_qubits
-    from .analysis.entanglement import entanglement_summary
     from .analysis.metrics import pauli_expectation, purity as _purity
     from .state import Statevector
 

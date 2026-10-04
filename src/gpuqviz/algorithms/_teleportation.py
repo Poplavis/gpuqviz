@@ -83,7 +83,6 @@ def teleportation(engine: str = "qiskit", prepare_state: str = "rx"):
 
 def teleportation_pyqpanda(qubits, machine, prepare_state: str = "rx"):
     """pyqpanda 路径量子隐形传态。"""
-    import pyqpanda as pq
     prog = _pyqpanda_prog()
     q0, q1, q2 = qubits[0], qubits[1], qubits[2]
     if prepare_state == "rx":

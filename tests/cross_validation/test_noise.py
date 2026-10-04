@@ -57,7 +57,7 @@ def _assert_channel_matches_qiskit(ops, rho, tol=TOL):
 def test_depolarizing_matches_qiskit():
     from qiskit_aer.noise import depolarizing_error
 
-    aer = pytest.importorskip("qiskit_aer")
+    pytest.importorskip("qiskit_aer")
     rho = _random_rho(1)
     for lam in (0.0, 0.1, 0.5, 0.9):
         ops = depolarizing(lam)
@@ -194,7 +194,7 @@ def _qiskit_to_gates(qc):
 
 def test_evolve_density_noisy_matches_aer():
     """GHZ 电路 + depolarizing 噪声：与 Aer density_matrix 末态对拍 ≤1e-6。"""
-    qiskit_aer = pytest.importorskip("qiskit_aer")
+    pytest.importorskip("qiskit_aer")
     from qiskit_aer import AerSimulator
     from qiskit_aer.noise import NoiseModel, depolarizing_error
 
@@ -229,7 +229,7 @@ def test_evolve_density_noisy_matches_aer():
 
 def test_evolve_density_amplitude_damping_matches_aer():
     """振幅阻尼全电路对拍 Aer。"""
-    qiskit_aer = pytest.importorskip("qiskit_aer")
+    pytest.importorskip("qiskit_aer")
     from qiskit_aer import AerSimulator
     from qiskit_aer.noise import NoiseModel, amplitude_damping_error
 

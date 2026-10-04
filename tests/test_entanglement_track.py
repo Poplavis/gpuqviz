@@ -1,7 +1,6 @@
 """EntanglementTrack / entanglement_graph_geometry 测试（几何契约 + CPU 冒烟）。"""
 
 import numpy as np
-import pytest
 
 from gpuqviz.analysis.entanglement import EntanglementReport, entanglement_summary
 from gpuqviz.render.entanglement import entanglement_graph_geometry
@@ -24,8 +23,8 @@ def test_geometry_nodes_on_ring():
     nodes, edges = entanglement_graph_geometry(rep, rect)
     assert len(nodes) == 3
     x, y, w, h = rect
-    cx, cy = x + w / 2, y + h / 2
-    for nx, ny, r, s, label in nodes:
+    _cx, _cy = x + w / 2, y + h / 2
+    for nx, ny, r, _s, label in nodes:
         assert x <= nx <= x + w and y <= ny <= y + h
         assert label.startswith("q")
     # 全纠缠 GHZ：所有节点半径 = r_max

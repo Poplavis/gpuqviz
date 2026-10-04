@@ -16,7 +16,7 @@ import numpy as np
 import gpuqviz
 from gpuqviz import BlochTrack, Scene
 from gpuqviz.circuits import Condition, Gate, evolve_gates_branches
-from gpuqviz.state import DensityMatrix, partial_trace
+from gpuqviz.state import partial_trace
 
 
 def _gates() -> list[Gate]:
@@ -47,7 +47,7 @@ def main():
                 np.outer(ev.frames[-1], ev.frames[-1].conj()), [2], 3)
             if ref_rho is None:
                 ref_rho = rho2  # 分支 (0,0) 作为基准
-                print(f"ψ(q2) = RZ(0.4)RY(0.9)|0⟩（由传态恢复）")
+                print("ψ(q2) = RZ(0.4)RY(0.9)|0⟩（由传态恢复）")
             else:
                 assert np.allclose(rho2, ref_rho, atol=1e-10)
     print("✓ 四分支 q2 约化态逐位一致 — 传态对所有测量结果成立")

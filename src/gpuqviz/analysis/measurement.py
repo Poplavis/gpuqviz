@@ -18,7 +18,7 @@ try:  # cupy 可选：P5.1 GPU 采样路径
 except ImportError:  # pragma: no cover
     cp = None
 
-from ..state import State, as_state
+from ..state import as_state
 
 __all__ = ["exact_probs", "sample_counts", "Counts"]
 

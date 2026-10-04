@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from gpuqviz.circuits import Gate
-from gpuqviz.mps import MPS, evolve_mps
+from gpuqviz.mps import evolve_mps
 from gpuqviz.state import partial_trace
 
 qiskit = pytest.importorskip("qiskit")

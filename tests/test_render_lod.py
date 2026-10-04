@@ -1,7 +1,6 @@
 """P5.3 渲染 LOD 测试：others 聚合 / 纠缠图边数上限 / Hinton 幅值阈值。"""
 
 import numpy as np
-import pytest
 
 from gpuqviz.analysis.entanglement import EntanglementReport
 from gpuqviz.render.density import hinton_cells

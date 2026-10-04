@@ -41,7 +41,7 @@ def main():
     gates = [Gate(name=g["name"], targets=g["targets"],
                   controls=g["controls"], params=g["params"])
              for g in _build_gates()]
-    n, n_qubits = len(gates), 3
+    n_qubits = 3
 
     LAM1, LAM2 = 0.08, 0.12  # 单/双 qubit 门去极化强度
 

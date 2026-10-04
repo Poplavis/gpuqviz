@@ -40,5 +40,11 @@ packages = ["src/gpuqviz"]
 [tool.ruff]
 line-length = 100
 
+[tool.ruff.lint]
+# 0.5.0 发布基线：聚焦真实缺陷（E/F/W）；风格类规则（import 排序、
+# 命名等）后续迭代再收紧。E501 行宽由编辑器/格式化器管理。
+select = ["E", "F", "W"]
+ignore = ["E501"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

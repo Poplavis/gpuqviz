@@ -114,7 +114,7 @@ if __name__ == "__main__":
     for p in paths:
         size_kb = p.stat().st_size / 1024
         print(f"  {p}  ({size_kb:.0f} KB)")
-    print(f"\n在浏览器中打开任一 HTML 文件即可体验交互效果：")
-    print(f"  • 播放时电路图中橙色高亮门随进度移动")
-    print(f"  • 点击电路图中的门可跳转到该时刻，Bloch 球同步更新")
-    print(f"  • 拖拽 3D 视口旋转，滚轮缩放，空格暂停/播放")
+    print("\n在浏览器中打开任一 HTML 文件即可体验交互效果：")
+    print("  • 播放时电路图中橙色高亮门随进度移动")
+    print("  • 点击电路图中的门可跳转到该时刻，Bloch 球同步更新")
+    print("  • 拖拽 3D 视口旋转，滚轮缩放，空格暂停/播放")

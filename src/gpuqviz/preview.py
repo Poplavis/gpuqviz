@@ -16,7 +16,7 @@ def run_preview(scene_path: str) -> None:  # pragma: no cover - 需要窗口环�
     from .evolve import bloch_vectors
     from .interpolate import lerp_states, slerp_keys
     from .render.bloch import BlochRenderer
-    from .render.heatmap import HeatmapRenderer, state_to_image
+    from .render.heatmap import HeatmapRenderer
     from .render.text import TextRenderer
     from .scene import Scene, _hex_to_rgba
 

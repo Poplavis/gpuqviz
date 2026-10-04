@@ -1,7 +1,6 @@
 """HistogramTrack / histogram_bars 测试（几何契约 + CPU 渲染冒烟）。"""
 
 import numpy as np
-import pytest
 
 from gpuqviz.render.histogram import histogram_bars
 

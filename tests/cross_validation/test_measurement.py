@@ -143,7 +143,7 @@ def test_marginal_matches_subspace_sampling():
 # --------------------------------------------------------------------------- #
 
 def test_sampling_matches_aer():
-    aer = pytest.importorskip("qiskit_aer")
+    pytest.importorskip("qiskit_aer")
     from qiskit_aer import AerSimulator
 
     n, depth, seed = 3, 6, 55

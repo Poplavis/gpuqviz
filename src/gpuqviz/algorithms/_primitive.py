@@ -27,7 +27,6 @@ def bell(engine: str = "qiskit"):
         qc.cx(0, 1)
         return qc
     if engine == "pyqpanda":
-        prog = _pyqpanda_prog()
         # gate 序列与 qiskit 路径一致；qubits 由调用方传入，这里用占位函数
         # 实际 pyqpanda 路径需通过 build_with_machine 封装
         raise NotImplementedError("use bell_pyqpanda(machine) for pyqpanda engine")

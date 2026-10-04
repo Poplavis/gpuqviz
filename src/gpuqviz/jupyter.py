@@ -22,7 +22,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .export_html import build_payload, export_html, _build_circuit_info
+from .export_html import build_payload, _build_circuit_info
 from .adapters import to_key_states, qiskit_to_gates
 
 logger = logging.getLogger(__name__)

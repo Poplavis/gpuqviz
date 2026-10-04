@@ -31,10 +31,9 @@ jobs:
         # CI runner 无 NVIDIA GPU：GL 用例会因无法创建 standalone context 被
         # importorskip 跳过；NVENC/NV12 用例自带 skipif。软光栅与数值用例全跑。
 
+  # S8: 无 GPU 环境可移植性回归门禁——强制 CPU 后端完整出片
+  # （ubuntu runner 不装 CUDA/cupy，模拟零硬件用户的实际环境）
   cpu-portability:
-    """S8: 无 GPU 环境可移植性回归门禁——强制 CPU 后端完整出片。
-    ubuntu runner 不装 CUDA/cupy，模拟零硬件用户的实际环境。
-    """
     runs-on: ubuntu-latest
     env:
       GPUQVIZ_BACKEND: cpu

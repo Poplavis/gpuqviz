@@ -256,13 +256,13 @@ def main() -> int:
     # 3. 生成缩略图
     thumb_count = 0
     if not args.no_thumbs:
-        print(f"\n[3/4] 生成缩略图 PNG")
+        print("\n[3/4] 生成缩略图 PNG")
         thumb_count = generate_thumbnails(success)
     else:
         print("\n[3/4] 跳过缩略图 (--no-thumbs)")
 
     # 4. 生成 gallery-data.js
-    print(f"\n[4/4] 生成画廊元数据")
+    print("\n[4/4] 生成画廊元数据")
     generate_gallery_data(success, thumb_count)
 
     # 汇总
@@ -276,7 +276,7 @@ def main() -> int:
     print(f"  demos/    {len(success):>2} 个 HTML   {_fmt_size(demos_size)}")
     print(f"  thumbs/   {thumb_count:>2} 个 PNG    {_fmt_size(thumbs_size)}")
     print(f"  assets/   generated + static  {_fmt_size(assets_size)}")
-    print(f"  ─────────────────────────────────────")
+    print("  ─────────────────────────────────────")
     print(f"  总计                          {_fmt_size(total_size)}")
     print()
     print("  本地预览:  python -m http.server 8080 -d site")

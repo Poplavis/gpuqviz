@@ -48,7 +48,6 @@ if _NUMBA_OK:
     @njit(cache=True)
     def _blend_disk_numba(frame, y0, y1, x0, x1, cx, cy, radius, r, g, b, alpha):
         """实心圆盘 alpha 混合到 frame 的包围盒 [y0:y1, x0:x1]。"""
-        inv_r = 1.0 / radius
         for yi in prange(y0, y1):
             dy = yi - cy
             for xi in range(x0, x1):
@@ -380,7 +379,6 @@ class SoftRasterContext:
         """
         from PIL import Image, ImageDraw
 
-        W, H = self.width, self.height
         px, py = int(position[0]), int(position[1])
         r, g, b = (int(c * 255) for c in color[:3])
         a = int(color[3] * 255) if len(color) > 3 else 255
@@ -408,7 +406,6 @@ class SoftRasterContext:
         """
         from PIL import Image, ImageDraw
 
-        W, H = self.width, self.height
         px, py = int(position[0]), int(position[1])
         r, g, b = (int(c * 255) for c in color[:3])
         a = int(color[3] * 255) if len(color) > 3 else 255
@@ -679,7 +676,6 @@ def render_heatmap_video_cpu(states, fps, out, width, height, basis="probability
 
     from ..encode import create_encoder
     from ..interpolate import lerp_states
-    from ..render.heatmap import state_to_image
     from ..scene import _hex_to_rgb01
 
     out = Path(out)

@@ -64,7 +64,6 @@ def _check_numba() -> str:
 
 def _check_interop() -> str:
     """CUDA-GL interop 探测（S5 优化路径的可用性，未启用时 pinned 路径兜底）。"""
-    import ctypes
     if sys.platform == "win32":
         # WGL/NV interop 需要共享设备上下文，探测复杂度高：报告"未启用"
         return "available in principle (not enabled; pinned-memory path active)"

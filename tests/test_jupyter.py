@@ -160,7 +160,7 @@ def test_nbconvert_smoke(tmp_path):
     jupyter/nbconvert 未安装时 skip。
     """
     nbformat = pytest.importorskip("nbformat")
-    nbconvert = pytest.importorskip("nbconvert")
+    pytest.importorskip("nbconvert")
     from nbconvert.preprocessors import ExecutePreprocessor
 
     nb = nbformat.v4.new_notebook()

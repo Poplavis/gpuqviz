@@ -707,7 +707,6 @@ def render_frame(circuit=None, states=None, scene=None, t: float = 0.5,
                         else:
                             ry0, ry1 = 0, sh
                         r_h = ry1 - ry0
-                        sp_px = 3.0
                         r_px_s = int(min(sw / len(qi_list), r_h) * 0.78 * 0.35)
                         for j, qi in enumerate(qi_list):
                             cx = (j + 0.5) * sw / len(qi_list)

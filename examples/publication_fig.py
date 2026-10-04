@@ -10,7 +10,6 @@
 
 from pathlib import Path
 
-import numpy as np
 from qiskit import QuantumCircuit
 
 from gpuqviz import render_frame
