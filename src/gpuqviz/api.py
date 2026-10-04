@@ -283,6 +283,9 @@ def render_bloch_video(circuit=None, states=None, steps: int = 120, fps: float =
     with GLContext(W, H, fps=fps) as gl:
         gl._bloch = BlochRenderer(gl, theme)
         gl._text = TextRenderer(gl) if overlays else None
+        if gl._text:
+            from .render.mathlabel import ImageOverlayRenderer
+            gl._imgoverlay = ImageOverlayRenderer(gl)
         trails: list[list] = [[] for _ in range(n_qubits)]  # 每个 qubit 独立轨迹
         try:
             with create_encoder(W, H, fps, out, codec=codec, quality=quality) as enc:
@@ -292,6 +295,8 @@ def render_bloch_video(circuit=None, states=None, steps: int = 120, fps: float =
             gl._bloch.release()
             if gl._text:
                 gl._text.release()
+            if getattr(gl, "_imgoverlay", None):
+                gl._imgoverlay.release()
     return Path(out)
 
 
@@ -319,6 +324,16 @@ def _draw_overlays_gl(gl, overlays: list[TextOverlay], W: int, H: int,
         r, g, b = _hex_to_rgb01(ov.color)
         alpha = ov.opacity
         fs = ov.font_size * sx
+        if ov.latex:
+            from .render.mathlabel import mathtext_to_rgba
+
+            img = getattr(gl, "_imgoverlay", None)
+            if img is None:
+                gl._text.draw(ov.text, (x, y), fs, (r, g, b, alpha))
+                continue
+            rgba = mathtext_to_rgba(ov.text, fontsize=fs, color=(r, g, b))
+            img.draw(rgba, x, y)
+            continue
         if ov.shadow:
             gl._text.draw(ov.text, (int(x + 2 * sx), int(y + 2 * sy)), fs,
                           (0.0, 0.0, 0.0, alpha * 0.5))
@@ -355,6 +370,16 @@ def _draw_overlays_cpu(soft, overlays: list[TextOverlay],
         x, y = ov.resolve_pixels(W, H)
         r, g, b = _hex_to_rgb01(ov.color)
         alpha = ov.opacity
+        if ov.latex:
+            from .render.mathlabel import composite_rgba, mathtext_to_rgba
+
+            rgba = mathtext_to_rgba(ov.text, fontsize=ov.font_size * scale,
+                                    color=(r, g, b))
+            if hasattr(soft, "draw_rgba"):
+                soft.draw_rgba(rgba, x * scale, y * scale)
+            else:
+                composite_rgba(soft.frame, rgba, x * scale, y * scale)
+            continue
         if ov.shadow:
             soft.draw_text_with_shadow(
                 ov.text, (x * scale, y * scale),
@@ -487,6 +512,8 @@ def render(scene: _Scene, out: str | Path = "out/scene.mp4", codec: str = "h264"
         gl._bloch = BlochRenderer(gl, theme)
         gl._heat = HeatmapRenderer(gl)
         gl._text = TextRenderer(gl)
+        from .render.mathlabel import ImageOverlayRenderer
+        gl._imgoverlay = ImageOverlayRenderer(gl)
         from .render.histogram import HistogramRenderer
         from .render.entanglement import EntanglementGraphRenderer
         from .render.density import DensityMatrixRenderer
@@ -503,6 +530,7 @@ def render(scene: _Scene, out: str | Path = "out/scene.mp4", codec: str = "h264"
             gl._bloch.release()
             gl._heat.release()
             gl._text.release()
+            gl._imgoverlay.release()
             gl._hist.release()
             gl._ent.release()
             gl._dens.release()
@@ -572,6 +600,9 @@ def render_heatmap_video(states=None, circuit=None, steps: int = 120, fps: float
     with GLContext(W, H, fps=fps) as gl:
         gl._heat = HeatmapRenderer(gl, colormap=colormap)
         gl._text = TextRenderer(gl) if overlays else None
+        if gl._text:
+            from .render.mathlabel import ImageOverlayRenderer
+            gl._imgoverlay = ImageOverlayRenderer(gl)
         try:
             with create_encoder(W, H, fps, out, codec=codec, quality=quality) as enc:
                 for t, frame in gl.frame_iterator(total_frames, draw):
@@ -580,6 +611,8 @@ def render_heatmap_video(states=None, circuit=None, steps: int = 120, fps: float
             gl._heat.release()
             if gl._text:
                 gl._text.release()
+            if getattr(gl, "_imgoverlay", None):
+                gl._imgoverlay.release()
     return Path(out)
 
 
@@ -829,6 +862,8 @@ def render_frame(circuit=None, states=None, scene=None, t: float = 0.5,
             if scene is not None:
                 gl._heat = HeatmapRenderer(gl)
                 gl._text = TextRenderer(gl)
+                from .render.mathlabel import ImageOverlayRenderer
+                gl._imgoverlay = ImageOverlayRenderer(gl)
                 from .render.histogram import HistogramRenderer
                 from .render.entanglement import EntanglementGraphRenderer
                 from .render.density import DensityMatrixRenderer
@@ -843,6 +878,7 @@ def render_frame(circuit=None, states=None, scene=None, t: float = 0.5,
                 if scene is not None:
                     gl._heat.release()
                     gl._text.release()
+                    gl._imgoverlay.release()
                     gl._hist.release()
                     gl._ent.release()
                     gl._dens.release()
@@ -856,6 +892,178 @@ def render_frame(circuit=None, states=None, scene=None, t: float = 0.5,
     # PNG 不支持 RGBA 的某些查看器兼容性：转 RGB（丢弃全不透明 alpha）
     pil.convert("RGB").save(str(out), format="PNG", optimize=True)
     return Path(out)
+
+
+def render_svg(scene=None, circuit=None, states=None,
+               out: str | Path = "out/scene.svg", t: float = 0.5,
+               cols: int | None = None, figsize=None,
+               width: int | None = None, height: int | None = None,
+               resolution: str | None = None, style: str = "dark",
+               colormap: str = "viridis",
+               states_dir: str | Path | None = None,
+               machine=None) -> Path:
+    """Scene / 电路 / 态矢量 → 出版级 SVG 矢量图（P2.5）。
+
+    与 render_frame 同参语义；渲染走矢量记录器（render/svg.py 的
+    SVGContext），不依赖 GPU 与显示环境。布洛赫球为扁平示意风格，
+    直方图/纠缠图/Hinton/热图网格为真矢量；LaTeX 标注（TextOverlay
+    latex=True）以高分辨率位图嵌入。
+
+    out 后缀：.svg 原生；.pdf / .png 经 cairosvg 转换（可选依赖）。
+    """
+    from .render.svg import SVGContext
+
+    theme = dict(_resolve_style(style, None))  # background 已是 RGBA 元组
+
+    # ---- 输入解析 → (frames, n_qubits) ----
+    if scene is not None:
+        W, H = scene.width, scene.height
+        base_dir = Path(states_dir) if states_dir else Path(out).parent
+        scene.validate_states(base_dir=base_dir)
+    else:
+        if (circuit is None) == (states is None):
+            raise ValueError("provide exactly one of circuit/states/scene")
+        if circuit is not None:
+            key_states, n_qubits = _circuit_key_states(circuit, steps=120,
+                                                       machine=machine)
+        else:
+            key_states = [np.asarray(getattr(s, "data", s)).reshape(-1)
+                          for s in states]
+            n_qubits = int(round(np.log2(key_states[0].shape[0])))
+        frames_bloch_grid = slerp_keys(
+            bloch_vectors(key_states, n_qubits=n_qubits), 120)
+        if hasattr(frames_bloch_grid, "get"):
+            frames_bloch_grid = frames_bloch_grid.get()
+        idx = int(round(t * 119))
+        if width is not None or height is not None:
+            W, H = _resolve_resolution(width, height, None, figsize,
+                                       default=(1920, 1080))
+        else:
+            W, H = _resolve_resolution(None, None, resolution, figsize,
+                                       default=(1920, 1080))
+
+    def _interp(states, out_frames):
+        if states.ndim == 3:  # 密度矩阵关键帧 → 迹归一插值
+            from .noise import lerp_density
+            return lerp_density(states, out_frames)
+        return lerp_states(states, out_frames)
+
+    sw, sh = W, H
+    svg = SVGContext(sw, sh)
+    svg.clear(theme["background"])
+
+    def _region_rect(region):
+        if region == "top":
+            return (0, H // 2, W, H - H // 2)
+        if region == "bottom":
+            return (0, 0, W, H // 2)
+        return (0, 0, W, H)
+
+    if scene is not None:
+        total = int(round(scene.duration * scene.fps))
+        idx = int(round(t * (total - 1)))
+        for track, region in scene.regions():
+            s_base = Path(states_dir) if states_dir else Path(out).parent
+            track_states = track.load_states(base_dir=s_base)
+            n_s = int(round(np.log2(track_states.shape[1])))
+            out_f = int(round(scene.duration * scene.fps))
+            x0, y0, rw, rh = _region_rect(region)
+            if track.kind == "bloch":
+                from .backends.cpu import SoftRasterBloch
+
+                fb = slerp_keys(bloch_vectors(list(track_states), n_qubits=n_s),
+                                out_f)
+                if hasattr(fb, "get"):
+                    fb = fb.get()
+                qi_list = track.qubit_indices or list(range(fb.shape[1]))
+                r_px = int(min(sw / len(qi_list), rh) * 0.78 * 0.35)
+                for j, qi in enumerate(qi_list):
+                    cx = (j + 0.5) * sw / len(qi_list)
+                    cy = y0 + rh / 2
+                    SoftRasterBloch(svg, theme).draw(fb[idx, qi], (cx, cy), r_px)
+            elif track.kind == "bloch_vectors":
+                from .backends.cpu import SoftRasterBloch
+
+                bloch_pre = track.load_bloch(base_dir=s_base)
+                fb = slerp_keys(bloch_pre, out_f)
+                qi_list = track.qubit_indices or list(range(fb.shape[1]))
+                r_px = int(min(sw / len(qi_list), rh) * 0.78 * 0.35)
+                for j, qi in enumerate(qi_list):
+                    cx = (j + 0.5) * sw / len(qi_list)
+                    cy = y0 + rh / 2
+                    SoftRasterBloch(svg, theme).draw(fb[idx, qi], (cx, cy), r_px)
+            elif track.kind == "histogram":
+                from .analysis.measurement import exact_probs
+                from .render.histogram import draw_histogram_cpu
+
+                fh = _interp(track_states, out_f)
+                if hasattr(fh, "get"):
+                    fh = fh.get()
+                rect = (60, y0 + 30, sw - 120, rh - 50)
+                draw_histogram_cpu(svg, exact_probs(fh[idx]), rect,
+                                   top_k=track.top_k, others=track.show_others)
+            elif track.kind == "entanglement":
+                from .analysis.entanglement import entanglement_summary
+                from .render.entanglement import draw_entanglement_graph_cpu
+
+                fh = _interp(track_states, out_f)
+                if hasattr(fh, "get"):
+                    fh = fh.get()
+                rect = (40, y0 + 20, sw - 80, rh - 40)
+                draw_entanglement_graph_cpu(svg, entanglement_summary(fh[idx]),
+                                            rect,
+                                            max_edges=track.max_edges or None)
+            elif track.kind == "density":
+                from .render.density import draw_density_cpu
+
+                fh = _interp(track_states, out_f)
+                if hasattr(fh, "get"):
+                    fh = fh.get()
+                rect = (90, y0 + 50, sw - 130, rh - 100)
+                draw_density_cpu(svg, fh[idx], rect, min_frac=track.min_frac)
+            else:  # heatmap
+                from .backends.cpu import SoftRasterHeatmap
+
+                heat = SoftRasterHeatmap(svg, colormap=track.colormap)
+                fh = _interp(track_states, out_f)
+                if hasattr(fh, "get"):
+                    fh = fh.get()
+                img = state_to_image(fh[idx], basis=track.basis)
+                if hasattr(img, "get"):
+                    img = img.get()
+                ih, iw = img.shape
+                cell = min((rw - 260) / iw, (rh - 100) / ih)
+                rw2, rh2 = cell * iw, cell * ih
+                rect = ((sw - rw2) / 2, y0 + (rh - rh2) / 2, rw2, rh2)
+                heat.draw(fh[idx], rect, basis=track.basis)
+        overlays = scene.effective_overlays()
+        current_t = t * scene.duration
+    else:
+        # 电路 / 态矢量：布洛赫网格（与 render_frame 的 CPU 网格同布局）
+        from .backends.cpu import SoftRasterBloch
+
+        if cols is None:
+            cols = max(1, int(np.ceil(np.sqrt(n_qubits))))
+        cell_w = sw / cols
+        rows = int(np.ceil(n_qubits / cols))
+        cell_h = sh / rows
+        r_px = int(min(cell_w, cell_h) * 0.35 * 0.78)
+        for i in range(n_qubits):
+            rr, c = i // cols, i % cols
+            cx = (c + 0.5) * cell_w
+            cy = (rr + 0.5) * cell_h
+            SoftRasterBloch(svg, theme).draw(frames_bloch_grid[idx][i],
+                                             (cx, cy), r_px)
+        overlays = []
+        current_t = t
+
+    # ---- 文字叠加（含 LaTeX：统一经 draw_rgba，SVG 嵌入高分辨率位图）----
+    _draw_overlays_cpu(svg, overlays, sw, sh, 1, current_t)
+
+    out = Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    return svg.save(out)
+
 
 
 def _build_scene_draw(scene, theme, base_dir, t01_target):

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gpuqviz"
-version = "0.6.0"
+version = "0.7.0"
 description = "GPU-accelerated quantum state evolution visualization and video rendering"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -28,8 +28,9 @@ qiskit = ["qiskit>=1.0", "qiskit-aer>=0.14"]
 qiskit-gpu = ["qiskit>=1.0", "qiskit-aer-gpu>=0.14"]
 pyqpanda = ["pyqpanda>=3.8"]
 preview = ["moderngl-window>=2.4"]
+plot = ["matplotlib>=3.8"]
 cpu-fallback = ["numba>=0.59"]
-dev = ["pytest>=8.0", "pytest-cov", "ruff", "mypy"]
+dev = ["pytest>=8.0", "pytest-cov", "ruff", "mypy", "matplotlib>=3.8"]
 
 [project.scripts]
 gpuqviz = "gpuqviz.cli:app"

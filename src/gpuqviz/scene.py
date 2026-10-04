@@ -52,6 +52,7 @@ class TextOverlay(BaseModel):
     end: float | None = None
     margin: int = 40
     shadow: bool = False
+    latex: bool = False  # P2.6：经 matplotlib mathtext 渲染（$...$ 数学式）
 
     def is_active(self, t: float) -> bool:
         """当前时间 t（秒）是否在显示范围内。"""

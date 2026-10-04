@@ -117,6 +117,7 @@ h.save("other.html")  # 另存 HTML</code></pre>
         <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;"><code>export_html(circuit=…, out=…, title=…)</code></td><td style="padding:8px;">交互式 3D 播放器 HTML</td></tr>
         <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;"><code>show(circuit=…)</code></td><td style="padding:8px;">Jupyter 内嵌播放器（返回 Path 兼容句柄，含 .figure/.widget）</td></tr>
         <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;"><code>load_qasm(path_or_text)</code></td><td style="padding:8px;">OpenQASM 2/3 → 电路；所有 <code>circuit=</code> 入口可直接吃 QASM 文本/文件（CLI：<code>gpuqviz qasm</code>）</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;"><code>render_svg(scene, out="fig.svg")</code></td><td style="padding:8px;">出版级 SVG/PDF 矢量输出；TextOverlay(latex=True) 支持 $mathtext$ 标注（需 matplotlib，PDF 需 cairosvg）</td></tr>
       </tbody>
     </table>
 
