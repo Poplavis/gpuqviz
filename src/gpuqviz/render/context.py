@@ -29,12 +29,42 @@ class GLUnavailableError(RuntimeError):
 
 
 def _try_create_context(gl_version: int = 330) -> "moderngl.Context":
-    """尝试创建指定 GL 版本的 standalone context，失败抛异常。"""
+    """尝试创建指定 GL 版本的 standalone context，失败抛异常。
+
+    跨平台回退链（P5/CI 修复）：默认后端（Windows=WGL，Linux 有显示=X11）
+    失败时依次尝试 EGL、OSMesa——headless Linux（CI runner / 无显示服务器）
+    靠 libegl1 + Mesa 或 libosmesa6 提供离屏软渲染。
+    """
     if moderngl is None:
         raise GLUnavailableError("moderngl not installed")
-    # moderngl.create_standalone_context(require=gl_version) 在版本不满足时抛异常
-    ctx = moderngl.create_standalone_context(require=gl_version)
-    return ctx
+    try:
+        return moderngl.create_standalone_context(require=gl_version)
+    except Exception as default_err:
+        last = default_err
+        for backend in ("egl", "osmesa"):
+            try:
+                ctx = moderngl.create_standalone_context(
+                    backend=backend, require=gl_version)
+                logger.info("GL standalone via %s backend (default failed: %s)",
+                            backend, default_err)
+                return ctx
+            except Exception as e:  # noqa: BLE001
+                last = e
+        raise GLUnavailableError(
+            f"no usable standalone GL backend (tried default/egl/osmesa): {last}"
+        ) from last
+
+
+def get_gl_renderer() -> str:
+    """当前 GL_RENDERER 字符串（测试/诊断用）；上下文不可用时返回空串。"""
+    try:
+        ctx = _try_create_context()
+    except Exception:  # noqa: BLE001
+        return ""
+    try:
+        return str(ctx.info.get("GL_RENDERER", ""))
+    finally:
+        ctx.release()
 
 
 def create_gl_context(width: int, height: int, fps: float = 60.0,
@@ -74,11 +104,12 @@ class GLContext:
         self.fps = float(fps)
         self.device = int(device)
 
-        # _ctx 由 create_gl_context 预创建（带降级链）；直接构造时回退到默认
+        # _ctx 由 create_gl_context 预创建（带降级链）；直接构造时走同一回退链
+        # （headless Linux 上默认 X11 路径抛 XOpenDisplay → EGL/OSMesa 兜底）
         if _ctx is not None:
             self.ctx = _ctx
         else:
-            self.ctx = moderngl.create_standalone_context()
+            self.ctx = _try_create_context()
         self.fbo = self.ctx.framebuffer(
             color_attachments=self.ctx.texture((self.width, self.height), 4),
             depth_attachment=self.ctx.depth_renderbuffer((self.width, self.height)),

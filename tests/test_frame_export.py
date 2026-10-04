@@ -7,6 +7,12 @@ from PIL import Image
 moderngl = pytest.importorskip("moderngl")
 
 from gpuqviz.api import render_frame  # noqa: E402  (importorskip 守卫)
+from gpuqviz.render.context import get_gl_renderer  # noqa: E402
+
+# 软件光栅（llvmpipe 等）的 AA 行为与硬件不同：超采样平滑度断言仅在硬件 GL 有效
+_SOFTWARE_RASTERIZERS = ("llvmpipe", "softpipe", "swrast", "softpipe")
+_GL_RENDERER = get_gl_renderer().lower()
+_IS_SOFTWARE_GL = any(s in _GL_RENDERER for s in _SOFTWARE_RASTERIZERS)
 
 
 def _bell_states():
@@ -50,6 +56,8 @@ def test_frame_bw_style_white_bg():
     assert corner.min() > 240, f"bw bg not white: corner={corner}"
 
 
+@pytest.mark.skipif(_IS_SOFTWARE_GL,
+                    reason=f"软件光栅（{_GL_RENDERER}）AA 行为与硬件不同")
 def test_frame_scale_reduces_aliasing():
     """scale=2 的边缘锯齿显著低于 scale=1（边缘梯度能量对比，宽松断言）。"""
     states = _bell_states()

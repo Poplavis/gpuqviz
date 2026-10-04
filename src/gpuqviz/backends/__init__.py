@@ -40,12 +40,22 @@ def detect_backend(force: bool = False) -> str:
     try:
         import moderngl
 
+        # 与 render.context 同一套回退链：headless Linux 经 EGL/OSMesa 可用 GL
         ctx = moderngl.create_standalone_context()
         ctx.release()
         _cached = "gl"
     except Exception:  # noqa: BLE001
-        logger.info("GL standalone context unavailable → CPU backend")
         _cached = "cpu"
+        for backend in ("egl", "osmesa"):
+            try:
+                ctx = moderngl.create_standalone_context(backend=backend)
+                ctx.release()
+                _cached = "gl"
+                break
+            except Exception:  # noqa: BLE001
+                continue
+        if _cached == "cpu":
+            logger.info("GL standalone context unavailable → CPU backend")
     return _cached
 
 
