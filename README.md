@@ -444,7 +444,7 @@ python scripts/gen_font_atlas.py   # 重新烘焙字体图集
 - [x] QASM 电路文件直接输入
 - [ ] 更多国内模拟器适配（QPilotMachine / QCloud 等）
 - [ ] Shor/HHL 等大规模算法演示
-- [ ] 矢量输出（SVG/PDF）与 LaTeX 标注
+- [x] 矢量输出（SVG/PDF）与 LaTeX 标注
 
 ## License
 
