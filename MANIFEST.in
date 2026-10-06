@@ -1,0 +1,3 @@
+include src/gpuqviz/_core.pyx
+include src/gpuqviz/_core.c
+include README.md

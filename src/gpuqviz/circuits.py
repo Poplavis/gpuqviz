@@ -7,9 +7,18 @@ ORIGINIR 文本），本模块用 numpy 完成逐门演化并产出关键帧态�
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
+
+try:  # 0.9.0 T3：C 内核可选（缺扩展时回退 numpy batched-GEMM 路径）
+    if os.environ.get("GPUQVIZ_DISABLE_CORE"):
+        raise ImportError("GPUQVIZ_DISABLE_CORE set")
+    from ._core import apply_1q_state as _core_1q_state
+    _CORE_OK = True
+except Exception:  # noqa: BLE001
+    _CORE_OK = False
 
 import numpy as np
 
@@ -76,6 +85,9 @@ def _apply_1q(state: np.ndarray, matrix: np.ndarray, target: int) -> np.ndarray:
     """单比特门：小端序平铺索引中 qubit q 的位权重是 2^q，恰为
     reshape(2^{n-1-q}, 2, 2^q) 的中间轴步长——单次 einsum 一步到位，
     无轴重排拷贝（0.9.0 T1-4）。"""
+    if _CORE_OK:
+        return _core_1q_state(np.ascontiguousarray(state, np.complex128),
+                              matrix, target)
     dim = state.shape[0]
     n = int(round(np.log2(dim)))
     left = 1 << (n - 1 - target)

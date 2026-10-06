@@ -14,8 +14,18 @@
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 from functools import lru_cache
+
+try:  # 0.9.0 T3：C 内核可选（缺扩展/编译失败/GPUQVIZ_DISABLE_CORE=1 时回退 numpy）
+    if os.environ.get("GPUQVIZ_DISABLE_CORE"):
+        raise ImportError("GPUQVIZ_DISABLE_CORE set")
+    from ._core import apply_1q_density as _core_1q_density
+    _CORE_OK = True
+except Exception:  # noqa: BLE001
+    _CORE_OK = False
 
 try:  # cupy 可选
     import cupy as cp
@@ -171,44 +181,85 @@ def _rho_tensor(rho: np.ndarray, n: int) -> np.ndarray:
     return rho.reshape((2,) * n + (2,) * n)
 
 
+def _rho_letter_maps(n: int, qubits: list[int]) -> tuple[list[int], list[int], list[int], list[int], list[int]]:
+    """0.9.0 T3：UρU† / Kraus 收缩的整数字母分配（单遍 einsum 用）。
+
+    布局约定：ρ 张量轴 p ↔ qubit n−1−p（row 区 0..n−1、col 区 n..2n−1）。
+    返回 (row_subs, col_subs, out_row_subs, out_col_subs, targets_msb)：
+    - 目标行输入 i_q = q，列输入 j_q = n+q；
+    - 行输出 a_q = 2n+t_idx、列输出 b_q = 2n+k+t_idx；
+    - 旁观 qubit 输入/输出同字母（自由轴保留）。
+    """
+    k = len(qubits)
+    # 字母 = qubit 编号（轴 p ↔ qubit n−1−p → 位置 n−1−q 处放字母 q）
+    row_subs = [n - 1 - p for p in range(n)]           # ρ 行轴字母
+    col_subs = [n + (n - 1 - p) for p in range(n)]     # ρ 列轴字母
+    out_row = list(row_subs)
+    out_col = list(col_subs)
+    for t_idx, q in enumerate(qubits):
+        out_row[n - 1 - q] = 2 * n + t_idx
+        out_col[n - 1 - q] = 2 * n + k + t_idx
+    # M6 行/列轴 MSB-first = targets 逆序
+    m_row = [2 * n + qubits.index(q) for q in reversed(qubits)]
+    m_col = [q for q in reversed(qubits)]
+    mc_row = [2 * n + k + qubits.index(q) for q in reversed(qubits)]
+    mc_col = [n + q for q in reversed(qubits)]
+    return row_subs, col_subs, out_row, out_col, (m_row, m_col, mc_row, mc_col)
+
+
 def apply_matrix_density(rho: np.ndarray, matrix: np.ndarray,
                          qubits: list[int]) -> np.ndarray:
-    """酉门作用到密度矩阵：ρ' = U ρ U†（qubits LSB-first，同 _apply_matrix）。"""
+    """酉门作用到密度矩阵：ρ' = U ρ U†（qubits LSB-first，同 _apply_matrix）。
+
+    0.9.0 T3：矩阵指数分解 + 整数字母 einsum 单遍收缩——
+    消除 moveaxis/reshape 的多次 4^n 拷贝（profiling 显示 reshape 占
+    evolve_density 总时长 ~45%）。
+    """
     n = int(round(np.log2(rho.shape[0])))
     k = len(qubits)
-    d = 1 << k
     U = np.asarray(matrix, dtype=np.complex128)
-    R = _rho_tensor(np.asarray(rho, dtype=np.complex128), n)
-    # ρ 张量是大端 reshape：轴 a ↔ qubit n−1−a（row）/ n+(n−1−a)（col）。
-    # 参与 qubit 按 LSB-first 逆序移到前部
-    row_src = [n - 1 - q for q in reversed(qubits)]
-    col_src = [n + (n - 1 - q) for q in reversed(qubits)]
-    R = np.moveaxis(R, row_src + col_src, list(range(2 * k)))
-    R = R.reshape(d, d, -1)  # (Q-row, Q-col, rest)
-    out = np.einsum("xA,yB,ABt->xyt", U, U.conj(), R, optimize=True)
-    out = out.reshape((2,) * (2 * n))  # 恢复完整张量再移轴（rest 展开为 2^(n-k) 个轴）
-    out = np.moveaxis(out, list(range(2 * k)), row_src + col_src)
-    return np.ascontiguousarray(out.reshape(rho.shape))
+    if k == 1 and _CORE_OK:
+        return np.asarray(_core_1q_density(np.ascontiguousarray(rho, np.complex128),
+                                           U, qubits[0]))
+    if 2 * n + 2 * k > 52:
+        raise ValueError(f"too many qubits ({n}) + targets ({k}) for einsum letters")
+    R = np.asarray(rho, dtype=np.complex128).reshape((2,) * (2 * n))
+    m6 = U.reshape((2,) * k + (2,) * k)
+    mc6 = U.conj().reshape((2,) * k + (2,) * k)
+    row_subs, col_subs, out_row, out_col, (m_row, m_col, mc_row, mc_col) = \
+        _rho_letter_maps(n, qubits)
+    out = np.einsum(m6, m_row + m_col,
+                    mc6, mc_row + mc_col,
+                    R, row_subs + col_subs,
+                    out_row + out_col, optimize=True)
+    return out.reshape(rho.shape)
 
 
 def apply_channel(rho: np.ndarray, kraus: list[np.ndarray],
                   qubits: list[int]) -> np.ndarray:
-    """Kraus 通道：ρ' = Σ_k (K_k)_Q ρ (K_k)_Q†。"""
+    """Kraus 通道：ρ' = Σ_k (K_k)_Q ρ (K_k)_Q†（单遍 einsum，0.9.0 T3）。"""
     n = int(round(np.log2(rho.shape[0])))
     k = len(qubits)
     d = 1 << k
     K = np.stack([np.asarray(m, dtype=np.complex128) for m in kraus])
     if K.shape[1:] != (d, d):
         raise ValueError(f"Kraus ops shape {K.shape[1:]} != {(d, d)}")
-    R = _rho_tensor(np.asarray(rho, dtype=np.complex128), n)
-    row_src = [n - 1 - q for q in reversed(qubits)]
-    col_src = [n + (n - 1 - q) for q in reversed(qubits)]
-    R = np.moveaxis(R, row_src + col_src, list(range(2 * k)))
-    R = R.reshape(d, d, -1)
-    out = np.einsum("kxA,kyB,ABt->xyt", K, K.conj(), R, optimize=True)
-    out = out.reshape((2,) * (2 * n))
-    out = np.moveaxis(out, list(range(2 * k)), row_src + col_src)
-    return np.ascontiguousarray(out.reshape(rho.shape))
+    if 2 * n + 2 * k > 52:
+        raise ValueError(f"too many qubits ({n}) + targets ({k}) for einsum letters")
+    R = np.asarray(rho, dtype=np.complex128).reshape((2,) * (2 * n))
+    k6 = K.reshape((K.shape[0],) + (2,) * k + (2,) * k)
+    kc6 = K.conj().reshape(k6.shape)
+    row_subs, col_subs, out_row, out_col, (m_row, m_col, mc_row, mc_col) = \
+        _rho_letter_maps(n, qubits)
+    # Kraus 求和轴：字母 2n+2k（出现于 K 与 Kc 各一次 → 自动求和）
+    sum_axis = 2 * n + 2 * k
+    k_subs = [sum_axis] + m_row[:k] + [q for q in m_col[:k]]
+    kc_subs = [sum_axis] + mc_row[:k] + [q for q in mc_col[:k]]
+    out = np.einsum(k6, k_subs,
+                    kc6, kc_subs,
+                    R, row_subs + col_subs,
+                    out_row + out_col, optimize=True)
+    return out.reshape(rho.shape)
 
 
 # --------------------------------------------------------------------------- #

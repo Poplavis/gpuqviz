@@ -10,17 +10,57 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  # 纯 Python 轮子（无编译器环境的兜底安装源）+ sdist（带 _core.pyx/.c）
+  build-pure:
     runs-on: ubuntu-latest
+    env:
+      GPUQVIZ_DISABLE_CYTHON: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Build sdist + wheel
+      - name: Build sdist + pure wheel
         run: |
           python -m pip install --upgrade pip build
           python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-pure
+          path: dist/
+
+  # C 扩展平台轮子（0.9.0 T3）：manylinux x86_64 + Windows amd64
+  build-wheels:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build wheels (cibuildwheel)
+        uses: pypa/cibuildwheel@v2
+        env:
+          CIBW_BUILD: "cp310-* cp311-* cp312-*"
+          CIBW_ARCHS: "x86_64 AMD64"
+          CIBW_BEFORE_BUILD: "pip install cython"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  check:
+    needs: [build-pure, build-wheels]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist/
       - name: Check artifacts
         run: |
           python -m pip install twine
@@ -31,7 +71,7 @@ jobs:
           path: dist/
 
   publish:
-    needs: build
+    needs: check
     runs-on: ubuntu-latest
     environment: pypi # PyPI Trusted Publisher 里配置的 environment 名
     permissions:
