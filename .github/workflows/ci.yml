@@ -10,7 +10,12 @@ jobs:
     strategy:
       fail-fast: false # 一个 OS 失败不取消另一个，便于对照
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          # windows 托管 runner 无可用 WGL（wglCreateContextAttribsARB
+          # not found，0.9.0 修复 PIPESTATUS 掩盖后确认）——GL 渲染测试
+          # 仅在 ubuntu 跑；windows 保留仿真/分析/编码全量
+          - { os: ubuntu-latest, kexpr: "not gpu_only" }
+          - { os: windows-latest, kexpr: "not gpu_only and not hosted_runner_flaky" }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -36,7 +41,7 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         shell: bash
         run: |
-          python -m pytest tests -q -k "not gpu_only" --tb=short 2>&1 | tee pytest_output.txt
+          python -m pytest tests -q -k "${{ matrix.kexpr }}" --tb=short 2>&1 | tee pytest_output.txt
           exit ${PIPESTATUS[0]}
       - name: Failure diagnostics → step summary
         if: failure()
