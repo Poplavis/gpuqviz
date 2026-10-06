@@ -144,12 +144,13 @@ def _gate_matrix(gate: Gate) -> tuple[np.ndarray, list[int]]:
         m[-1, -1] = np.exp(1j * params[0])
         return m, tgt + ctrl
 
-    # 控制位归一：名字剥掉 C / MC / MCR 前缀得到 base 门
+    # 控制位归一：名字剥掉 MC / C 前缀得到 base 门
+    # （无 "MCR" 前缀：MCRY = MC + RY，先剥 3 字符会把 base 错剥成 Y）
     if name == "CNOT":
         name = "CX"  # 历史别名；否则会被 "C" 前缀剥成非法的 "NOT"
     base_name, n_ctrl = name, len(ctrl)
     while n_ctrl and base_name not in _BASE_NAMES:
-        for pfx in ("MCR", "MC", "C"):
+        for pfx in ("MC", "C"):
             if base_name.startswith(pfx) and len(base_name) > len(pfx):
                 base_name = base_name[len(pfx):]
                 break

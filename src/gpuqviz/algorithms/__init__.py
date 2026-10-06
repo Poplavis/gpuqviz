@@ -42,11 +42,17 @@ from ._teleportation import teleportation
 from ._superdense import superdense
 from ._simon import simon
 from ._quantum_walk import quantum_walk
+from ._shor import shor, shor_period_finding, continued_fraction_period, factor_from_period
+from ._hhl import (hhl, hhl_circuit, hhl_eigenvalues, hhl_classical_solution,
+                   hhl_conditional_state)
 
 __all__ = [
     "bell", "ghz", "superposition", "grover", "qft", "phase_estimation",
     "deutsch_jozsa", "bernstein_vazirani", "teleportation", "superdense",
-    "simon", "quantum_walk",
+    "simon", "quantum_walk", "shor", "hhl",
+    "shor_period_finding", "continued_fraction_period", "factor_from_period",
+    "hhl_circuit", "hhl_eigenvalues", "hhl_classical_solution",
+    "hhl_conditional_state",
     "ALGORITHM_REGISTRY", "AlgorithmSpec", "get_algorithm", "list_algorithms",
 ]
 
@@ -93,6 +99,12 @@ ALGORITHM_REGISTRY: dict[str, AlgorithmSpec] = {
     "quantum_walk": AlgorithmSpec(
         "quantum_walk", "离散时间量子随机游走（硬币 + 条件移位）",
         quantum_walk, 3, "游走"),
+    "shor": AlgorithmSpec(
+        "shor", "Shor 周期查找（N=15，a∈{2,4}：QPE 峰 → 连分数 → 因子）",
+        shor, 10, "因子分解"),
+    "hhl": AlgorithmSpec(
+        "hhl", "HHL 线性求解（对角 A：QPE + 条件旋转 + 逆计算）",
+        hhl, 6, "线性求解"),
 }
 
 

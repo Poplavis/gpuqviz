@@ -36,6 +36,8 @@ DEMO_PARAMS = {
     "superdense":        {"steps": 80,  "duration": 4.0},
     "simon":             {"steps": 140, "duration": 7.0},
     "quantum_walk":      {"steps": 120, "duration": 6.0},
+    "shor":              {"steps": 240, "duration": 12.0},
+    "hhl":               {"steps": 200, "duration": 10.0},
 }
 
 

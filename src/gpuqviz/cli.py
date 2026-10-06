@@ -317,6 +317,12 @@ def demo(
             builder_kwargs = {"s": "01" * ((n_qubits // 2) or 1)}
         elif algo == "quantum_walk":
             builder_kwargs = {"n": max(1, n_qubits - 1)}
+        elif algo == "shor":
+            # 计数寄存器 = n_qubits - 4（工作寄存器固定 4 bit）
+            builder_kwargs = {"t_bits": max(2, n_qubits - 4)}
+        elif algo == "hhl":
+            # clock 精度 = n_qubits - 3（2 input + 1 ancilla 固定）
+            builder_kwargs = {"clock_bits": max(2, n_qubits - 3)}
 
     # ---- qiskit 引擎 ----
     if engine == "qiskit":

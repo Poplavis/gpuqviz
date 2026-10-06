@@ -308,7 +308,7 @@ gpuqviz demo --algo bell --engine pyqpanda  # 切换模拟引擎
 
 ### 内置算法库
 
-`gpuqviz.algorithms` 提供 12 个经典量子算法电路构建器，每种算法返回 qiskit `QuantumCircuit`（`engine="qiskit"`）、pyqpanda `QProg`（`engine="pyqpanda"`）或 `list[Gate]`（`engine="numpy"`，无外部依赖），可直接传入可视化 API：
+`gpuqviz.algorithms` 提供 14 个经典量子算法电路构建器，每种算法返回 qiskit `QuantumCircuit`（`engine="qiskit"`）、pyqpanda `QProg`（`engine="pyqpanda"`）或 `list[Gate]`（`engine="numpy"`，无外部依赖），可直接传入可视化 API：
 
 ```python
 from gpuqviz.algorithms import grover, qft, bell
@@ -336,6 +336,12 @@ gates = qft(n=3, engine="numpy")
 | 超密编码 | `superdense(message="11")` | 通信 | 2 |
 | Simon 算法 | `simon(s="01")` | 查询复杂度 | 4 |
 | 量子随机游走 | `quantum_walk(n=3, steps=3)` | 游走 | 3 |
+| Shor 周期查找 | `shor(a=2, t_bits=6)`（N=15） | 因子分解 | 10 |
+| HHL 线性求解 | `hhl(b, clock_bits=3, C=0.6)`（对角 A） | 线性求解 | 6 |
+
+Shor/HHL 演示（含经典后处理与数值验证）见 [examples/shor_demo.py](examples/shor_demo.py) 与
+[examples/hhl_demo.py](examples/hhl_demo.py)；线路正确性由
+`tests/cross_validation/test_shor_hhl.py` 以 1e-10 容差与 qiskit 对拍锁定。
 
 ## API 速览
 
@@ -439,12 +445,12 @@ python scripts/gen_font_atlas.py   # 重新烘焙字体图集
 - [x] CPU/无 GL 环境可移植性：numba 加速软光栅（CPU bell 116s→6s，19×）、完整 `HeatmapTrack`/`PhaseDisc`/PIL 文字 CPU 路径、`GPUQVIZ_BACKEND` 环境变量、GL 3.3→3.2 降级链、CI 无 GPU 门禁
 - [x] Jupyter 交互集成：`gpuqviz.show(qc)` 一行代码内嵌 3D 播放器（断网可用），大 payload 自动降级，`as_video=True` 渲染视频内嵌
 - [x] 交互式电路图：`export_html(circuit=qc)` / `show(qc)` 自动绘制 SVG 量子电路图，与 Bloch 球双向联动（播放高亮当前门 / 点击门跳转）
-- [x] 内置算法库 + CLI demo：12 个经典量子算法（Bell/GHZ/Grover/QFT/QPE/Deutsch-Jozsa/Bernstein-Vazirani/隐形传态/超密编码/Simon/量子游走/叠加态），`gpuqviz demo --algo grover` 一行命令演示，支持 qiskit/pyqpanda 引擎切换
+- [x] 内置算法库 + CLI demo：14 个经典量子算法（Bell/GHZ/Grover/QFT/QPE/Deutsch-Jozsa/Bernstein-Vazirani/隐形传态/超密编码/Simon/量子游走/叠加态），`gpuqviz demo --algo grover` 一行命令演示，支持 qiskit/pyqpanda 引擎切换
 - [x] **专业轨道 0.5.0**：约定契约 + 对拍体系（qiskit/Aer，1e-10/1e-6）、测量统计（GPU 采样 n=24 亚秒）、纠缠分析、噪声开放系统（Hinton）、参数化扫参、条件门/中途测量、ProVisualizer、MPS 后端（20+ qubit χ 截断）、直方图/纠缠图/Hinton 渲染器与 LOD、Jupyter 双轨（.figure/.widget）——见 [docs/development-plan.md](docs/development-plan.md)
 - [ ] CUDA-GL interop 零拷贝读回（当前 pinned memory）
 - [x] QASM 电路文件直接输入
 - [ ] 更多国内模拟器适配（QPilotMachine / QCloud 等）
-- [ ] Shor/HHL 等大规模算法演示
+- [x] Shor 周期查找（N=15，受控模乘 SWAP 分解 + 连分数因子）与 HHL 线性求解（对角 A 精确 QPE + 条件旋转），双引擎交叉验证 1e-10（examples/shor_demo.py、examples/hhl_demo.py）
 - [x] 矢量输出（SVG/PDF）：`render_svg(scene, out="fig.svg")` 出版级矢量图（布洛赫球扁平示意 + 直方图/纠缠图/Hinton/热图网格真矢量），PDF 经 cairosvg；LaTeX 标注：`TextOverlay(latex=True, text="$\psi...$")` mathtext 排版（GL 纹理/CPU 合成/SVG 嵌入三路径），CJK 字体回退链
 
 ## License

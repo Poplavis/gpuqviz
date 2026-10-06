@@ -1,6 +1,6 @@
 """内置算法库正确性测试。
 
-对 12 个经典量子算法验证：
+对 14 个经典量子算法验证：
 1. 电路构建成功（qiskit / numpy 路径）
 2. 数值正确性（用 evolve_gates 计算末态，验证关键性质）
 3. 注册表完整性
@@ -43,14 +43,15 @@ def _final_state_numpy(n, gates):
 # --------------------------------------------------------------------------- #
 
 class TestRegistry:
-    def test_registry_has_12_algorithms(self):
-        assert len(ALGORITHM_REGISTRY) == 12
+    def test_registry_has_14_algorithms(self):
+        assert len(ALGORITHM_REGISTRY) == 14
 
     def test_registry_names(self):
         expected = {
             "bell", "ghz", "superposition", "grover", "qft",
             "phase_estimation", "deutsch_jozsa", "bernstein_vazirani",
             "teleportation", "superdense", "simon", "quantum_walk",
+            "shor", "hhl",
         }
         assert set(ALGORITHM_REGISTRY.keys()) == expected
 
