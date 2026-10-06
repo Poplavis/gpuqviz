@@ -4,6 +4,18 @@
 <meta charset="utf-8">
 <title>算法演示画廊 — gpuqviz</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+// 防闪烁：在 CSS 生效前设置主题（localStorage → 系统偏好 → 暗色）
+(function () {
+  var t;
+  try { t = localStorage.getItem("gpuqviz-theme"); } catch (e) {}
+  if (t !== "light" && t !== "dark") {
+    t = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
+      ? "light" : "dark";
+  }
+  document.documentElement.setAttribute("data-theme", t);
+})();
+</script>
 <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
@@ -18,6 +30,7 @@
       <li><a href="playground.html">实验室</a></li>
       <li><a href="docs.html">文档</a></li>
       <li><a class="gh-link" href="https://github.com/Poplavis/gpuqviz" target="_blank">GitHub</a></li>
+    <button class="theme-toggle" id="themeToggle" title="切换明亮/暗色模式" aria-label="切换主题">☀️</button>
     </ul>
   </div>
 </nav>
@@ -26,7 +39,7 @@
   <div class="container">
     <div class="section-header">
       <h2>算法演示画廊</h2>
-      <p>12 个经典量子算法的交互式可视化演示 · 点击卡片即可播放</p>
+      <p>14 个经典量子算法的交互式可视化演示 · 点击卡片即可播放</p>
     </div>
 
     <!-- 分类筛选 -->
@@ -39,6 +52,8 @@
       <button class="filter-btn" data-filter="查询复杂度">查询复杂度</button>
       <button class="filter-btn" data-filter="通信">通信</button>
       <button class="filter-btn" data-filter="游走">游走</button>
+      <button class="filter-btn" data-filter="因子分解">因子分解</button>
+      <button class="filter-btn" data-filter="线性求解">线性求解</button>
     </div>
 
     <!-- 卡片网格 -->

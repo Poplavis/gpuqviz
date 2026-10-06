@@ -4,6 +4,18 @@
 <meta charset="utf-8">
 <title>量子电路实验室 — gpuqviz</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+// 防闪烁：在 CSS 生效前设置主题（localStorage → 系统偏好 → 暗色）
+(function () {
+  var t;
+  try { t = localStorage.getItem("gpuqviz-theme"); } catch (e) {}
+  if (t !== "light" && t !== "dark") {
+    t = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
+      ? "light" : "dark";
+  }
+  document.documentElement.setAttribute("data-theme", t);
+})();
+</script>
 <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
@@ -18,6 +30,7 @@
       <li><a href="playground.html" class="active">实验室</a></li>
       <li><a href="docs.html">文档</a></li>
       <li><a class="gh-link" href="https://github.com/Poplavis/gpuqviz" target="_blank">GitHub</a></li>
+    <button class="theme-toggle" id="themeToggle" title="切换明亮/暗色模式" aria-label="切换主题">☀️</button>
     </ul>
   </div>
 </nav>

@@ -3,6 +3,32 @@
 (function () {
   "use strict";
 
+  // ─── 明亮/暗色主题（localStorage + 系统偏好，html[data-theme]） ───
+  var THEME_KEY = "gpuqviz-theme";
+
+  function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    var btn = document.querySelector(".theme-toggle");
+    if (btn) {
+      btn.textContent = theme === "light" ? "🌙" : "☀️";
+      btn.title = theme === "light" ? "切换到暗色模式" : "切换到明亮模式";
+    }
+  }
+
+  function initTheme() {
+    // head 内防闪烁脚本已设置 data-theme；这里只补按钮状态
+    var current = document.documentElement.getAttribute("data-theme") || "dark";
+    applyTheme(current);
+    var toggle = document.querySelector(".theme-toggle");
+    if (!toggle) return;
+    toggle.addEventListener("click", function () {
+      var next = (document.documentElement.getAttribute("data-theme") === "light")
+        ? "dark" : "light";
+      applyTheme(next);
+      try { localStorage.setItem(THEME_KEY, next); } catch (e) { /* 隐私模式忽略 */ }
+    });
+  }
+
   // ─── 导航栏汉堡菜单 ───
   function initNavbar() {
     var toggle = document.querySelector(".nav-toggle");
@@ -203,6 +229,7 @@
   }
 
   function init() {
+    initTheme();
     initNavbar();
     renderGallery();
     initGalleryFilters();

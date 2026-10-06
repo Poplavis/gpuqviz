@@ -96,4 +96,20 @@ window.GPUQVIZ_GALLERY = [
     demo_url: "demos/quantum_walk.html",
     thumb_url: "images/thumbs/quantum_walk.png",
   },
+  {
+    name: "shor",
+    description: "Shor \u5468\u671f\u67e5\u627e\uff08N=15\uff0ca\u2208{2,4}\uff1aQPE \u5cf0 \u2192 \u8fde\u5206\u6570 \u2192 \u56e0\u5b50\uff09",
+    category: "\u56e0\u5b50\u5206\u89e3",
+    n_qubits: 10,
+    demo_url: "demos/shor.html",
+    thumb_url: "images/thumbs/shor.png",
+  },
+  {
+    name: "hhl",
+    description: "HHL \u7ebf\u6027\u6c42\u89e3\uff08\u5bf9\u89d2 A\uff1aQPE + \u6761\u4ef6\u65cb\u8f6c + \u9006\u8ba1\u7b97\uff09",
+    category: "\u7ebf\u6027\u6c42\u89e3",
+    n_qubits: 6,
+    demo_url: "demos/hhl.html",
+    thumb_url: "images/thumbs/hhl.png",
+  },
 ];

@@ -4,6 +4,18 @@
 <meta charset="utf-8">
 <title>gpuqviz — GPU 加速的量子态演化可视化</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+// 防闪烁：在 CSS 生效前设置主题（localStorage → 系统偏好 → 暗色）
+(function () {
+  var t;
+  try { t = localStorage.getItem("gpuqviz-theme"); } catch (e) {}
+  if (t !== "light" && t !== "dark") {
+    t = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
+      ? "light" : "dark";
+  }
+  document.documentElement.setAttribute("data-theme", t);
+})();
+</script>
 <meta name="description" content="把 qiskit 电路一键渲染成布洛赫球与概率热图动画的 GPU 加速量子可视化库">
 <link rel="stylesheet" href="assets/site.css">
 </head>
@@ -19,6 +31,7 @@
       <li><a href="playground.html">实验室</a></li>
       <li><a href="docs.html">文档</a></li>
       <li><a class="gh-link" href="https://github.com/Poplavis/gpuqviz" target="_blank">GitHub</a></li>
+    <button class="theme-toggle" id="themeToggle" title="切换明亮/暗色模式" aria-label="切换主题">☀️</button>
     </ul>
   </div>
 </nav>
@@ -157,8 +170,8 @@ viz.export_video("noisy.mp4")  # 含噪演化动画（Bloch 收缩自动呈现�
 <section class="section">
   <div class="container">
     <div class="section-header">
-      <h2>内置 12 个经典量子算法</h2>
-      <p>从 Bell 态到 Grover 搜索，一键可视化演示</p>
+      <h2>内置 14 个经典量子算法</h2>
+      <p>从 Bell 态到 Shor 分解与 HHL 求解，一键可视化演示</p>
     </div>
     <div class="algo-tags" id="algoTags">
       <!-- site.js 自动渲染 -->
