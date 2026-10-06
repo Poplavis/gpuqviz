@@ -48,6 +48,7 @@ if _NUMBA_OK:
     @njit(cache=True)
     def _blend_disk_numba(frame, y0, y1, x0, x1, cx, cy, radius, r, g, b, alpha):
         """实心圆盘 alpha 混合到 frame 的包围盒 [y0:y1, x0:x1]。"""
+        frame_flat = frame.reshape(-1, 4)  # 提出（0.9.0 T2：原在像素循环内）
         for yi in prange(y0, y1):
             dy = yi - cy
             for xi in range(x0, x1):
@@ -55,7 +56,6 @@ if _NUMBA_OK:
                 d = (dx * dx + dy * dy) ** 0.5
                 if d <= radius:
                     idx = yi * frame.shape[1] + xi
-                    frame_flat = frame.reshape(-1, 4)
                     frame_flat[idx, 0] = np.uint8(
                         frame_flat[idx, 0] * (1 - alpha) + r * alpha
                     )
@@ -69,6 +69,7 @@ if _NUMBA_OK:
     @njit(cache=True)
     def _draw_ring_numba(frame, y0, y1, x0, x1, cx, cy, radius, thickness, r, g, b):
         """圆环：|d - radius| <= thickness → 纯色覆盖。"""
+        frame_flat = frame.reshape(-1, 4)
         for yi in prange(y0, y1):
             dy = yi - cy
             for xi in range(x0, x1):
@@ -76,7 +77,6 @@ if _NUMBA_OK:
                 d = (dx * dx + dy * dy) ** 0.5
                 if abs(d - radius) <= thickness:
                     idx = yi * frame.shape[1] + xi
-                    frame_flat = frame.reshape(-1, 4)
                     frame_flat[idx, 0] = np.uint8(r)
                     frame_flat[idx, 1] = np.uint8(g)
                     frame_flat[idx, 2] = np.uint8(b)
@@ -87,6 +87,7 @@ if _NUMBA_OK:
     ):
         """椭圆环：归一化距离 ≈ 1 → 纯色。"""
         min_r = min(rx, ry)
+        frame_flat = frame.reshape(-1, 4)
         for yi in prange(y0, y1):
             for xi in range(x0, x1):
                 dx = (xi - cx) / max(rx, 1e-6)
@@ -94,7 +95,6 @@ if _NUMBA_OK:
                 d = (dx * dx + dy * dy) ** 0.5
                 if abs(d - 1.0) * min_r <= thickness:
                     idx = yi * frame.shape[1] + xi
-                    frame_flat = frame.reshape(-1, 4)
                     frame_flat[idx, 0] = np.uint8(r)
                     frame_flat[idx, 1] = np.uint8(g)
                     frame_flat[idx, 2] = np.uint8(b)
@@ -142,6 +142,7 @@ if _NUMBA_OK:
         """热图伪彩：img 值 ∈ [0,1] → LUT 查表 → 覆盖 frame 的 bbox。"""
         n_cols = x1 - x0
         img_h = y1 - y0
+        frame_flat = frame.reshape(-1, 4)
         for yi in prange(img_h):
             for xi in range(n_cols):
                 v = img_flat[yi * n_cols + xi]
@@ -153,7 +154,6 @@ if _NUMBA_OK:
                 fy = yi + y0
                 fx = xi + x0
                 idx = fy * frame.shape[1] + fx
-                frame_flat = frame.reshape(-1, 4)
                 frame_flat[idx, 0] = lut[li, 0]
                 frame_flat[idx, 1] = lut[li, 1]
                 frame_flat[idx, 2] = lut[li, 2]
@@ -161,6 +161,7 @@ if _NUMBA_OK:
     @njit(cache=True)
     def _phase_disc_numba(frame, y0, y1, x0, x1, cx, cy, radius, amp, phase):
         """相位色盘 CPU 版：极径=亮度，色相=相位。"""
+        frame_flat = frame.reshape(-1, 4)
         for yi in prange(y0, y1):
             dy = (yi - cy) / radius
             for xi in range(x0, x1):
@@ -194,7 +195,6 @@ if _NUMBA_OK:
                 else:
                     rr, gg, bb = v, p, q
                 idx = yi * frame.shape[1] + xi
-                frame_flat = frame.reshape(-1, 4)
                 frame_flat[idx, 0] = np.uint8(rr * 255)
                 frame_flat[idx, 1] = np.uint8(gg * 255)
                 frame_flat[idx, 2] = np.uint8(bb * 255)
@@ -214,6 +214,8 @@ def _bbox(cx, cy, radius, W, H, pad=1):
 class SoftRasterContext:
     """numpy 帧画布。接口与 GLContext 对齐的子集：clear / frame_iterator。"""
 
+    _stretch_cache: dict = {}  # 热图 nearest 拉伸索引 (ih, iw, w, h) → (row, col)
+
     def __init__(self, width: int, height: int, fps: float = 60.0):
         self.width = int(width)
         self.height = int(height)
@@ -227,10 +229,33 @@ class SoftRasterContext:
     def __exit__(self, *exc):
         pass
 
+    _bg_cache: tuple | None = None
+
+    def _composite_overlay(self, overlay, ox: int, oy: int) -> None:
+        """PIL overlay 区域合成：只拷贝相交区域（原实现每条文字 2 次全帧拷贝，
+        0.9.0 T2）。overlay 坐标可越界，自动裁剪。"""
+        from PIL import Image
+
+        ix0, iy0 = max(0, ox), max(0, oy)
+        ix1 = min(self.width, ox + overlay.width)
+        iy1 = min(self.height, oy + overlay.height)
+        if ix1 <= ix0 or iy1 <= iy0:
+            return
+        ov = overlay.crop((ix0 - ox, iy0 - oy,
+                           ix0 - ox + (ix1 - ix0), iy0 - oy + (iy1 - iy0)))
+        region = Image.fromarray(self.frame[iy0:iy1, ix0:ix1], mode="RGBA")
+        region.alpha_composite(ov, (0, 0))
+        self.frame[iy0:iy1, ix0:ix1] = np.asarray(region, dtype=np.uint8)
+
     def clear(self, color=(0, 0, 0, 1)):
         rgb = (np.asarray(color[:3]) * 255).astype(np.uint8)
+        key = (int(rgb[0]), int(rgb[1]), int(rgb[2]))
+        if self._bg_cache is not None and self._bg_cache[0] == key:
+            self.frame[...] = self._bg_cache[1]  # 单次整帧拷贝
+            return
         self.frame[..., :3] = rgb
         self.frame[..., 3] = 255
+        self._bg_cache = (key, self.frame.copy())
 
     def frame_iterator(self, total_frames, draw_fn=None):
         for t in range(total_frames):
@@ -350,9 +375,16 @@ class SoftRasterContext:
         ih, iw = img.shape
         if w <= 0 or h <= 0:
             return
-        # nearest-neighbor 拉伸
-        row_idx = (np.arange(h) * ih / h).astype(int).clip(0, ih - 1)
-        col_idx = (np.arange(w) * iw / w).astype(int).clip(0, iw - 1)
+        # nearest-neighbor 拉伸（索引按 (ih, iw, w, h) 缓存，0.9.0 T2）
+        key = (ih, iw, w, h)
+        cached = SoftRasterContext._stretch_cache.get(key)
+        if cached is None:
+            row_idx = (np.arange(h) * ih / h).astype(int).clip(0, ih - 1)
+            col_idx = (np.arange(w) * iw / w).astype(int).clip(0, iw - 1)
+            cached = (row_idx, col_idx)
+            if len(SoftRasterContext._stretch_cache) < 32:
+                SoftRasterContext._stretch_cache[key] = cached
+        row_idx, col_idx = cached
         stretched = img[row_idx][:, col_idx]  # (h, w)
         x1, y1 = min(x + w, self.width), min(y + h, self.height)
         w_clip, h_clip = x1 - x, y1 - y
@@ -393,9 +425,7 @@ class SoftRasterContext:
             (pad - bbox[0], pad - bbox[1]), text,
             fill=(r, g, b, a), font=font,
         )
-        base = Image.fromarray(self.frame, mode="RGBA")
-        base.alpha_composite(overlay, (px - pad, py - pad))
-        self.frame = np.array(base, dtype=np.uint8)
+        self._composite_overlay(overlay, px - pad, py - pad)
 
     def draw_text_with_shadow(self, text, position, size_px, color,
                               shadow_offset=(2, 2), shadow_alpha=0.5):
@@ -426,9 +456,7 @@ class SoftRasterContext:
         draw.text((pad - bbox[0], pad - bbox[1]), text,
                   fill=(r, g, b, a), font=font)
 
-        base = Image.fromarray(self.frame, mode="RGBA")
-        base.alpha_composite(overlay, (px - pad, py - pad))
-        self.frame = np.array(base, dtype=np.uint8)
+        self._composite_overlay(overlay, px - pad, py - pad)
 
     def draw_phase_disc(self, state, rect):
         """相位色盘 CPU 版：单位圆盘上极径=亮度、色相=相位。"""
@@ -543,6 +571,9 @@ class SoftRasterBloch:
 
 
 class SoftRasterHeatmap:
+
+    _cb_cache_h: int = -1
+    _cb_cache_img: np.ndarray | None = None
     """CPU 热图渲染器：态矢量 → grid → LUT 伪彩。
 
     与 GL HeatmapRenderer 数值一致（复用 state_to_image + bake_colormap），
@@ -566,9 +597,13 @@ class SoftRasterHeatmap:
         cb_w = 22 if colorbar else 0
         self.soft.draw_heatmap(img, (x, y, w, h), self.lut)
         if colorbar:
-            # 色标条：纵向渐变（LUT 倒序，底=0 顶=1）
+            # 色标条：纵向渐变（底=0 顶=1；cb_h 相同时复用缓存，0.9.0 T2）
             cb_h = int(h)
-            cb_img = np.linspace(0, 1, cb_h).astype(np.float32)[:, None]
+            if SoftRasterHeatmap._cb_cache_h != cb_h:
+                SoftRasterHeatmap._cb_cache_h = cb_h
+                SoftRasterHeatmap._cb_cache_img = np.linspace(
+                    0, 1, cb_h).astype(np.float32)[:, None]
+            cb_img = SoftRasterHeatmap._cb_cache_img
             self.soft.draw_heatmap(cb_img, (x + w + 10, y, cb_w, cb_h), self.lut)
 
     def release(self):
@@ -620,6 +655,8 @@ def render_bloch_video_cpu(states_bloch, fps, out, theme, width, height,
                 cy = (r + 0.5) * cell_h
                 if trail:
                     trails[i].append(np.asarray(vecs[i], float))
+                    if len(trails[i]) > 64:  # 与 GL 路径一致截断，避免 O(t²)
+                        trails[i] = trails[i][-64:]
                     for k in range(1, len(trails[i])):
                         a, b = trails[i][k - 1], trails[i][k]
                         na = np.clip(np.linalg.norm(a), 0.0, 1.0)

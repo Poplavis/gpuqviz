@@ -52,7 +52,6 @@ def depolarizing(lam: float, n_qubits: int = 1) -> list[np.ndarray]:
     """
     if not 0 <= lam <= (4 ** n_qubits) / (4 ** n_qubits - 1):
         raise ValueError(f"depolarizing param λ={lam} out of range")
-    d = 1 << n_qubits
     if n_qubits == 1:
         return [
             _SQ(1 - 3 * lam / 4) * _I2,

@@ -395,19 +395,12 @@ def sample_snapshots(snapshots: list[np.ndarray], steps: int) -> list[np.ndarray
     if m >= steps:
         idx = np.round(np.linspace(0, m - 1, steps)).astype(int)
         return [snapshots[i] for i in idx]
-    out = []
-    for i in range(steps):
-        pos = i / (steps - 1) * (m - 1)
-        lo = int(np.floor(pos))
-        hi = min(lo + 1, m - 1)
-        w = pos - lo
-        if w < 1e-12 or lo == hi:
-            out.append(snapshots[lo])
-        else:  # 关键帧间线性插值 + renormalize（可视化近似）
-            mid = (1 - w) * snapshots[lo] + w * snapshots[hi]
-            norm = np.linalg.norm(mid)
-            out.append(mid / norm if norm > 1e-12 else snapshots[lo])
-    return out
+    # 0.9.0 T2：向量化批量插值（复用 interpolate.lerp_states 的
+    # gather+renormalize 公式），替代逐帧 Python 循环
+    from .interpolate import lerp_states
+
+    frames = lerp_states(snapshots, steps)
+    return [frames[i] for i in range(frames.shape[0])]
 
 
 # ---------------- ORIGINIR 解析（pyqpanda 适配器的中间层） ----------------

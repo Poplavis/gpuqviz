@@ -6,12 +6,12 @@
 
 | 后端 | 场景 | 耗时 (s) |
 |---|---|---|
-| gl | bell 3s@30fps | 4.6 |
-| gl | ghz split 3s@30fps | 3.7 |
+| gl | bell 3s@30fps | 4.5 |
+| gl | ghz split 3s@30fps | 3.6 |
 | gl | ghz heatmap 3s@30fps | 3.4 |
-| cpu | bell 3s@30fps | 5.1 |
-| cpu | ghz bloch 3s@30fps | 4.4 |
-| cpu | ghz heatmap 3s@30fps | 8.7 |
+| cpu | bell 3s@30fps | 3.0 |
+| cpu | ghz bloch 3s@30fps | 2.9 |
+| cpu | ghz heatmap 3s@30fps | 3.5 |
 
 ## S8 优化前 CPU 基线（numba 加速前）
 
