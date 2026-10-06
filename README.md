@@ -75,6 +75,9 @@ pip install gpuqviz[preview]    # 追加实时预览
 - Python ≥ 3.9（NVENC 硬编码路径需 ≥ 3.10）
 - 任何支持 OpenGL 3.3 的 GPU（**无 N 卡也能跑**，编码自动回退软编码）
 - 可选：NVIDIA GPU + CUDA 12.x（cupy 加速 + NVENC）
+- C 内核 `gpuqviz._core`（单比特门 / UρU† 加速）：pip 安装平台轮子即含；
+  从 sdist 源码安装需 C 编译器，无编译器时自动跳过（纯 Python 回退，
+  数值结果一致），或显式 `GPUQVIZ_DISABLE_CYTHON=1 pip install gpuqviz`
 
 </details>
 
@@ -377,12 +380,19 @@ HTML 产物内嵌 `gpuqviz-render-info` meta、`ProVisualizer` 记录 backend/en
 
 ## 性能
 
-当前实测（S8 软光栅优化后），详见 [docs/benchmarks.md](docs/benchmarks.md)：
+当前实测（0.9.0 内核优化后），详见 [docs/benchmarks.md](docs/benchmarks.md)：
 
 | 场景 | gl 后端 | cpu 软光栅 |
 |---|---|---|
-| Bell 态 3s@30fps 720p | **4.6s** | 5.1s |
-| 概率热图 3s@30fps 720p | **3.4s** | 8.7s |
+| Bell 态 3s@30fps 720p | 4.5s | **3.0s** |
+| 概率热图 3s@30fps 720p | 3.4s | 3.5s |
+| 10q × 20 个 9-控制 MCX 演化 | — | 0.7ms（原 79ms，113×） |
+
+0.9.0 内核优化：门作用内核重构（受控门控制位切片、单比特批量 GEMM）、
+`pauli_expectation` 局部算符化（10q 190× / 12q 584×）、`purity` 迹收缩（8×）、
+CPU 软光栅残留热点清除——**两条渲染后端耗时已无实质差距**。
+Cython C 内核（`gpuqviz._core`）加速单比特门与 UρU†，缺编译环境自动回退
+numpy 路径（`GPUQVIZ_DISABLE_CORE=1` 可强制，数值完全一致，1e-10 对拍锁定）。
 
 关键帧插值语义：关键帧是**门作用后的精确态**（与 qiskit 对拍 1e-10），
 输出帧率由帧间 slerp/lerp 插值补齐——中间帧是视觉过渡而非物理演化；
