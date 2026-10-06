@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, fields as _dc_fields
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +16,69 @@ from .render.heatmap import HeatmapRenderer, state_to_image
 from .render.text import TextRenderer
 from .scene import Scene as _Scene
 from .scene import TextOverlay, TextPosition, _hex_to_rgb01, _hex_to_rgba
+
+
+# --------------------------------------------------------------------------- #
+# 统一渲染配置（0.8.0：审计 #7）
+# --------------------------------------------------------------------------- #
+
+@dataclass(frozen=True)
+class RenderConfig:
+    """跨入口统一渲染配置。
+
+    所有渲染入口（render_bloch_video / render_heatmap_video / render_frame /
+    render / render_svg / export_html / show）均接受 ``config=`` 参数；
+    字段值为 None 表示"未指定"，由各入口的内置默认补齐。
+
+    优先级：**显式平铺参数 > config 同名字段 > 入口内置默认**。
+    平铺参数传 None 等同于未传（由 config 或默认决定）。
+    """
+
+    steps: int | None = None
+    fps: float | None = None
+    seconds: float | None = None
+    out: str | Path | None = None
+    title: str | None = None
+    watermark: str | None = None
+    style: str | None = None
+    colormap: str | None = None
+    basis: str | None = None
+    trail: bool | None = None
+    backend: str | None = None
+    codec: str | None = None
+    quality: float | None = None
+    width: int | None = None
+    height: int | None = None
+    resolution: str | tuple[int, int] | None = None
+    figsize: tuple[float, float] | None = None
+    cols: int | None = None
+
+    def specified(self) -> dict:
+        """返回所有非 None 字段。"""
+        return {f.name: getattr(self, f.name) for f in _dc_fields(self)
+                if getattr(self, f.name) is not None}
+
+
+def _apply_config(config: RenderConfig | None, defaults: dict, **flat):
+    """合并 config / 平铺参数 / 入口默认（显式平铺 > config > 默认）。
+
+    返回 SimpleNamespace；入口随后按名重绑局部变量。平铺参数值为 None
+    视为"未传"（文档约定，见 RenderConfig docstring）。
+    """
+    from types import SimpleNamespace
+
+    # 顺序即优先级：defaults → config 覆盖 → 平铺参数（非 None）覆盖
+    resolved = dict(defaults)
+    for k in flat:
+        resolved.setdefault(k, None)  # 入口重绑用；None = 未指定
+    if config is not None:
+        for k, v in config.specified().items():
+            if k in resolved:
+                resolved[k] = v
+    for k, v in flat.items():
+        if v is not None and k in resolved:
+            resolved[k] = v
+    return SimpleNamespace(**resolved)
 
 
 def _circuit_key_states(circuit, steps: int, machine=None) -> tuple[list[np.ndarray], int]:
@@ -187,11 +251,13 @@ def _grid_layout(n_qubits: int, cols: int | None,
     return centers, spacing, radius, cam_dist
 
 
-def render_bloch_video(circuit=None, states=None, steps: int = 120, fps: float = 60.0,
-                       out: str | Path = "out/bloch.mp4", style="dark",
-                       codec: str = "h264", quality: float = 0.9,
-                       trail: bool = False, seconds: float | None = None,
-                       backend: str = "auto", machine=None,
+def render_bloch_video(circuit=None, states=None, steps: int | None = None,
+                       fps: float | None = None,
+                       out: str | Path | None = None, style: str | None = None,
+                       codec: str | None = None, quality: float | None = None,
+                       trail: bool | None = None,
+                       seconds: float | None = None,
+                       backend: str | None = None, machine=None,
                        cols: int | None = None,
                        figsize: tuple[float, float] | None = None,
                        width: int | None = None,
@@ -199,7 +265,8 @@ def render_bloch_video(circuit=None, states=None, steps: int = 120, fps: float =
                        resolution: str | tuple[int, int] | None = None,
                        title: str | None = None,
                        watermark: str | None = None,
-                       style_overrides: dict | None = None) -> Path:
+                       style_overrides: dict | None = None,
+                       config: RenderConfig | None = None) -> Path:
     """qiskit 电路或态矢量序列 → 布洛赫球动画 MP4（零中间文件）。
 
     circuit 与 states 二选一。circuit 按 depth 均匀采样 steps 个关键帧，
@@ -220,6 +287,23 @@ def render_bloch_video(circuit=None, states=None, steps: int = 120, fps: float =
     - title：顶部左上角标题文字
     - watermark：右下角半透明水印文字
     """
+    p = _apply_config(
+        config,
+        defaults={"steps": 120, "fps": 60.0, "out": "out/bloch.mp4",
+                  "style": "dark", "codec": "h264", "quality": 0.9,
+                  "trail": False, "backend": "auto"},
+        steps=steps, fps=fps, out=out, style=style, codec=codec,
+        quality=quality, trail=trail, backend=backend, title=title,
+        watermark=watermark, cols=cols, figsize=figsize,
+        width=width, height=height, resolution=resolution,
+    )
+    steps, fps, out = p.steps, p.fps, p.out
+    style, codec, quality, trail, backend = (p.style, p.codec, p.quality,
+                                             p.trail, p.backend)
+    title, watermark = p.title, p.watermark
+    cols, figsize = p.cols, p.figsize
+    width, height, resolution = p.width, p.height, p.resolution
+
     if (circuit is None) == (states is None):
         raise ValueError("exactly one of `circuit` or `states` must be provided")
 
@@ -391,13 +475,21 @@ def _draw_overlays_cpu(soft, overlays: list[TextOverlay],
                            ov.font_size * scale, (r, g, b, alpha))
 
 
-def render(scene: _Scene, out: str | Path = "out/scene.mp4", codec: str = "h264",
-           quality: float = 0.9, prefer_nvenc: bool = False,
-           states_dir: str | Path | None = None) -> Path:
+def render(scene: _Scene, out: str | Path | None = None,
+           codec: str | None = None, quality: float | None = None,
+           prefer_nvenc: bool = False,
+           states_dir: str | Path | None = None,
+           config: RenderConfig | None = None) -> Path:
     """Scene 声明式场景 → MP4。布局→相机→逐帧→编码统一编排。
 
     states_dir：track 的 states_path 相对目录（默认 output 文件所在目录）。
     """
+    p = _apply_config(config,
+                      defaults={"out": "out/scene.mp4", "codec": "h264",
+                                "quality": 0.9},
+                      out=out, codec=codec, quality=quality)
+    out, codec, quality = p.out, p.codec, p.quality
+
     theme = dict(STYLES["dark"])
     theme["background"] = _hex_to_rgba(scene.background)
     base_dir = Path(states_dir) if states_dir else Path(out).parent
@@ -537,16 +629,21 @@ def render(scene: _Scene, out: str | Path = "out/scene.mp4", codec: str = "h264"
     return Path(out)
 
 
-def render_heatmap_video(states=None, circuit=None, steps: int = 120, fps: float = 60.0,
-                         out: str | Path = "out/heatmap.mp4", basis: str = "probability",
-                         colormap: str = "viridis", codec: str = "h264",
-                         quality: float = 0.9, seconds: float | None = None,
-                         machine=None, backend: str = "auto",
+def render_heatmap_video(states=None, circuit=None, steps: int | None = None,
+                         fps: float | None = None,
+                         out: str | Path | None = None,
+                         basis: str | None = None,
+                         colormap: str | None = None,
+                         codec: str | None = None,
+                         quality: float | None = None,
+                         seconds: float | None = None,
+                         machine=None, backend: str | None = None,
                          width: int | None = None,
                          height: int | None = None,
                          resolution: str | tuple[int, int] | None = None,
                          title: str | None = None,
-                         watermark: str | None = None) -> Path:
+                         watermark: str | None = None,
+                         config: RenderConfig | None = None) -> Path:
     """态矢量序列（或电路）→ 概率/幅值/相位热图动画 MP4。
 
     S8：backend="cpu" 时走纯 numpy 软光栅热图（LUT 伪彩），无需 OpenGL。
@@ -557,6 +654,22 @@ def render_heatmap_video(states=None, circuit=None, steps: int = 120, fps: float
 
     文字叠加：title（顶部标题）、watermark（右下角水印）
     """
+    p = _apply_config(
+        config,
+        defaults={"steps": 120, "fps": 60.0, "out": "out/heatmap.mp4",
+                  "basis": "probability", "colormap": "viridis",
+                  "codec": "h264", "quality": 0.9, "backend": "auto"},
+        steps=steps, fps=fps, out=out, basis=basis, colormap=colormap,
+        codec=codec, quality=quality, backend=backend, title=title,
+        watermark=watermark, width=width, height=height,
+        resolution=resolution,
+    )
+    steps, fps, out = p.steps, p.fps, p.out
+    basis, colormap, codec, quality, backend = (p.basis, p.colormap, p.codec,
+                                                p.quality, p.backend)
+    title, watermark = p.title, p.watermark
+    width, height, resolution = p.width, p.height, p.resolution
+
     if states is None and circuit is not None:
         key_states, _ = _circuit_key_states(circuit, steps, machine=machine)
     elif states is not None:
@@ -617,15 +730,16 @@ def render_heatmap_video(states=None, circuit=None, steps: int = 120, fps: float
 
 
 def render_frame(circuit=None, states=None, scene=None, t: float = 0.5,
-                 out: str | Path = "out/frame.png", scale: int = 2,
-                 style="dark", cols: int | None = None,
+                 out: str | Path | None = None, scale: int = 2,
+                 style: str | None = None, cols: int | None = None,
                  figsize: tuple[float, float] | None = None,
                  width: int | None = None,
                  height: int | None = None,
                  resolution: str | tuple[int, int] | None = None,
                  style_overrides: dict | None = None,
                  machine=None,
-                 states_dir: str | Path | None = None) -> Path:
+                 states_dir: str | Path | None = None,
+                 config: RenderConfig | None = None) -> Path:
     """渲染归一化时刻 t∈[0,1] 的单帧 → PNG（出版级静态图，零中间文件）。
 
     circuit/states/scene 三选一：scene 时按其布局渲染（含热图/标题），
@@ -641,6 +755,16 @@ def render_frame(circuit=None, states=None, scene=None, t: float = 0.5,
     scene 路径优先使用 scene.width/scene.height；若显式指定 width/height/resolution，
     则覆盖 Scene 中的尺寸。
     """
+    p = _apply_config(
+        config,
+        defaults={"out": "out/frame.png", "style": "dark"},
+        out=out, style=style, cols=cols, figsize=figsize,
+        width=width, height=height, resolution=resolution,
+    )
+    out, style = p.out, p.style
+    cols, figsize = p.cols, p.figsize
+    width, height, resolution = p.width, p.height, p.resolution
+
     if scale < 1:
         raise ValueError("scale must be >= 1")
     if not (0.0 <= t <= 1.0):
@@ -895,13 +1019,14 @@ def render_frame(circuit=None, states=None, scene=None, t: float = 0.5,
 
 
 def render_svg(scene=None, circuit=None, states=None,
-               out: str | Path = "out/scene.svg", t: float = 0.5,
+               out: str | Path | None = None, t: float = 0.5,
                cols: int | None = None, figsize=None,
                width: int | None = None, height: int | None = None,
-               resolution: str | None = None, style: str = "dark",
-               colormap: str = "viridis",
+               resolution: str | None = None, style: str | None = None,
+               colormap: str | None = None,
                states_dir: str | Path | None = None,
-               machine=None) -> Path:
+               machine=None,
+               config: RenderConfig | None = None) -> Path:
     """Scene / 电路 / 态矢量 → 出版级 SVG 矢量图（P2.5）。
 
     与 render_frame 同参语义；渲染走矢量记录器（render/svg.py 的
@@ -912,6 +1037,17 @@ def render_svg(scene=None, circuit=None, states=None,
     out 后缀：.svg 原生；.pdf / .png 经 cairosvg 转换（可选依赖）。
     """
     from .render.svg import SVGContext
+
+    p = _apply_config(
+        config,
+        defaults={"out": "out/scene.svg", "style": "dark",
+                  "colormap": "viridis"},
+        out=out, style=style, colormap=colormap, cols=cols, figsize=figsize,
+        width=width, height=height, resolution=resolution,
+    )
+    out, style, colormap = p.out, p.style, p.colormap
+    cols, figsize = p.cols, p.figsize
+    width, height, resolution = p.width, p.height, p.resolution
 
     theme = dict(_resolve_style(style, None))  # background 已是 RGBA 元组
 

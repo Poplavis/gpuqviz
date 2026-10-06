@@ -41,6 +41,10 @@ class ProReport:
     entanglement: EntanglementReport | None = None
     pauli: dict[str, float] = field(default_factory=dict)
     fidelity_target: float | None = None
+    # 0.8.0 审计 #3/#4：降级链与近似语义可观测
+    provenance: str = "exact"          # "exact" / "mps_chi=N" 等
+    backend: str | None = None         # 最近一次 export 的渲染后端
+    encoder: str | None = None         # 最近一次 export 的实际编码器
 
     def to_dict(self) -> dict:
         return {
@@ -50,6 +54,9 @@ class ProReport:
             "entanglement": self.entanglement.to_dict() if self.entanglement else None,
             "pauli": dict(self.pauli),
             "fidelity_target": self.fidelity_target,
+            "provenance": self.provenance,
+            "backend": self.backend,
+            "encoder": self.encoder,
         }
 
 
@@ -99,6 +106,8 @@ class ProVisualizer:
         self._pauli: list[str] = []
         self._entanglement = False
         self._target = None
+        self.backend: str | None = None   # 最近一次 export_video 的渲染后端
+        self.encoder: str | None = None   # 最近一次 export_video 的实际编码器
 
     # -- 链式配置 ----------------------------------------------------------- #
 
@@ -149,9 +158,10 @@ class ProVisualizer:
         f_target = None
         if self._target is not None:
             f_target = fidelity(st, Statevector(self._target))
+        provenance = getattr(st, "provenance", "exact")
         return ProReport(n_qubits=self.n_qubits, state_table=table,
                          counts=counts, entanglement=ent, pauli=pauli,
-                         fidelity_target=f_target)
+                         fidelity_target=f_target, provenance=provenance)
 
     # -- 导出 --------------------------------------------------------------- #
 
@@ -179,9 +189,15 @@ class ProVisualizer:
                       tracks=[BlochTrack(states_path=npz_rel, trail=True,
                                          layout="full")])
         from .api import render
+        from .backends import detect_backend
+        from .encode import last_encoder_info
 
-        return render(scene, out=out, states_dir=base_dir,
+        path = render(scene, out=out, states_dir=base_dir,
                       prefer_nvenc=prefer_nvenc)
+        enc = last_encoder_info() or {}
+        self.backend = detect_backend()
+        self.encoder = enc.get("encoder")
+        return path
 
     def export_frame(self, out: str | Path = "out/pro_frame.png",
                      t: float = 1.0, scale: int = 2,

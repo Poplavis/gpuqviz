@@ -71,6 +71,9 @@ class Encoder:
     def __exit__(self, *exc) -> None:
         self.close()
 
+    #: 实际使用的编码器名（子类在 _open 里赋值；产物 meta / 调试用）
+    encoder_name: str = "unknown"
+
     def _open(self) -> None:  # pragma: no cover - 抽象
         raise NotImplementedError
 
@@ -102,6 +105,9 @@ class AvEncoder(Encoder):
                 f"GPU encoder {candidates[0]!r} unavailable, falling back to {chosen!r}",
                 RuntimeWarning,
             )
+        self.encoder_name = chosen
+        if _LAST_ENCODER_INFO is not None:
+            _LAST_ENCODER_INFO["encoder"] = chosen
         logger.info("AvEncoder using codec %s", chosen)
 
         self.stream = self.container.add_stream(chosen, rate=int(round(self.fps)))
@@ -166,6 +172,9 @@ class NvencEncoder(Encoder):
             self.width, self.height, "NV12", usecpuinputbuffer=True,
             codec=codec, rc="vbr", cq=str(q), fps=str(int(round(self.fps))),
         )
+        self.encoder_name = f"nvenc_{codec}"
+        if _LAST_ENCODER_INFO is not None:
+            _LAST_ENCODER_INFO["encoder"] = self.encoder_name
         self._frame_index = 0
         # 预创建 muxer（PyNvVideoCodec 2.x 的 FFmpegMuxer 需要完整参数）
         self._muxer = nvc.FFmpegMuxer(
@@ -266,10 +275,30 @@ def nvenc_available() -> bool:
     return _NVENC_CACHE
 
 
+#: 最近一次编码会话的实际编码链（0.8.0 审计 #3：降级可观测）。
+_LAST_ENCODER_INFO: dict | None = None
+
+
+def last_encoder_info() -> dict | None:
+    """返回最近一次 create_encoder 的编码链信息（无会话时 None）。
+
+    键：requested_codec / prefer_nvenc / nvenc_available / encoder（实际
+    生效的编码器名，NVENC 回退 libx264 时二者不同——降级在产物中可见）。
+    """
+    return dict(_LAST_ENCODER_INFO) if _LAST_ENCODER_INFO else None
+
+
 def create_encoder(width: int, height: int, fps: float, out_path, codec: str = "h264",
                    quality: float = 0.9, prefer_nvenc: bool = False) -> Encoder:
     """工厂：prefer_nvenc=True 且探测通过时走显存直喂 NvencEncoder，
     否则 AvEncoder（其内部同样优先 GPU 编码、软编码兜底）。"""
+    global _LAST_ENCODER_INFO
+    _LAST_ENCODER_INFO = {
+        "requested_codec": codec,
+        "prefer_nvenc": bool(prefer_nvenc),
+        "nvenc_available": bool(nvenc_available()) if prefer_nvenc else None,
+        "encoder": "unknown",
+    }
     if prefer_nvenc and nvenc_available():
         logger.info("using NvencEncoder (device-memory path)")
         return NvencEncoder(width, height, fps, out_path, codec=codec, quality=quality)

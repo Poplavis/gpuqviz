@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import warnings
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,8 @@ def detect_backend(force: bool = False) -> str:
     """探测可用后端。GPUQVIZ_BACKEND=cpu/gl 时强制返回，跳过探测。
 
     force=True 时清缓存重新探测（环境变量仍优先）。
+    GL 探测失败降级 CPU 时发出 RuntimeWarning（0.8.0 审计 #3：
+    降级必须可观测；探测有缓存，每进程实际只告警一次）。
     """
     global _cached
     env = _env_backend()
@@ -55,8 +58,33 @@ def detect_backend(force: bool = False) -> str:
             except Exception:  # noqa: BLE001
                 continue
         if _cached == "cpu":
+            warnings.warn(
+                "OpenGL standalone context unavailable "
+                "(default/EGL/OSMesa all failed); falling back to the CPU "
+                "software rasterizer (limited styles, much slower). "
+                "Install GPU drivers or set GPUQVIZ_BACKEND=cpu to silence.",
+                RuntimeWarning, stacklevel=2,
+            )
             logger.info("GL standalone context unavailable → CPU backend")
     return _cached
+
+
+def render_info() -> dict:
+    """当前将使用的渲染链信息（backend + GL renderer 字符串）。
+
+    供产物 meta 与调试使用；不产生副作用（探测结果有进程级缓存）。
+    """
+    info: dict = {"backend": detect_backend()}
+    if info["backend"] == "gl":
+        try:
+            import moderngl
+
+            ctx = moderngl.create_standalone_context()
+            info["gl_renderer"] = str(ctx.info.get("GL_RENDERER", "?"))
+            ctx.release()
+        except Exception:  # noqa: BLE001
+            info["gl_renderer"] = "unknown"
+    return info
 
 
 def resolve_backend(backend: str = "auto") -> str:

@@ -46,6 +46,19 @@ class MPS:
     def copy(self) -> "MPS":
         return MPS([t.copy() for t in self.tensors])
 
+    def max_bond_dim(self) -> int:
+        """当前最大键维（截断程度的上界指示）。"""
+        return max((max(t.shape[0], t.shape[2]) for t in self.tensors), default=1)
+
+    @property
+    def provenance(self) -> str:
+        """近似语义标注（0.8.0 审计 #4）："mps_chi=N"。
+
+        χ 逐操作指定、无单一全局值，此处报告当前最大键维；
+        与精确态对拍（chi_max=None）时数值为精确。
+        """
+        return f"mps_chi={self.max_bond_dim()}"
+
     # -- 门作用 ------------------------------------------------------------- #
 
     def apply_1q(self, U: np.ndarray, site: int) -> None:

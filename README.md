@@ -365,20 +365,28 @@ Shor/HHL 演示（含经典后处理与数值验证）见 [examples/shor_demo.py
 | 能力 | gl 后端（默认） | cpu 后端（自动降级） |
 |---|---|---|
 | 布洛赫球（光照/轨迹/多 qubit） | ✅ 完整 | ✅ 正交投影 limited |
-| 概率/相位热图 | ✅ | ❌ |
-| SDF 文字 / 相机动画 | ✅ | ❌ |
+| 概率/相位热图 | ✅ | ✅（软光栅 LUT） |
+| SDF 文字 / 相机动画 | ✅ | ❌（文字用 PIL 合成） |
 | 编码链 | NVENC → nvenc(av) → libx264 | libx264 |
 
-自动降级策略：任何一环缺失（无 N 卡、驱动不支持 NVENC、无 OpenGL）都只降速不报错，
-`gpuqviz env` 会输出各项能力状态与推荐后端。
+自动降级策略：任何一环缺失（无 N 卡、驱动不支持 NVENC、无 OpenGL）都只降速不报错。
+0.8.0 起 GL→CPU 后端降级会发出 `RuntimeWarning`；`gpuqviz env` 输出各项能力状态，
+HTML 产物内嵌 `gpuqviz-render-info` meta、`ProVisualizer` 记录 backend/encoder——
+降级链随产物可查。**数值量（Bloch 向量、概率、纠缠熵）在两条后端下完全一致**
+（同一 numpy 分析层），差异仅在渲染质量与速度。
 
 ## 性能
 
-消费级 NVIDIA GPU（NVENC 不可用，编码回退 libx264）实测，详见 [docs/benchmarks.md](docs/benchmarks.md)：
+当前实测（S8 软光栅优化后），详见 [docs/benchmarks.md](docs/benchmarks.md)：
 
 | 场景 | gl 后端 | cpu 软光栅 |
 |---|---|---|
-| Bell 态 3s@30fps 720p | **3.9s** | 112.8s |
+| Bell 态 3s@30fps 720p | **4.6s** | 5.1s |
+| 概率热图 3s@30fps 720p | **3.4s** | 8.7s |
+
+关键帧插值语义：关键帧是**门作用后的精确态**（与 qiskit 对拍 1e-10），
+输出帧率由帧间 slerp/lerp 插值补齐——中间帧是视觉过渡而非物理演化；
+需要逐门精确展示时增大 `steps`（每门一帧即全精确）。
 
 ## 常见问题
 
@@ -400,8 +408,11 @@ EGL → OSMesa（CI 的 ubuntu runner 上实测通过）。Debian/Ubuntu 需
 <details>
 <summary>态矢量数据太大了（多 qubit）</summary>
 
-热图与状态显示复杂度随 2^n 增长，建议 n ≤ 10；更大的系统请渲染约化密度矩阵
-或局域观测量。
+区分两件事：<strong>能算的规模</strong>——MPS 后端（<code>evolve_mps</code>）支持
+20+ qubit 演化，只计算约化分析量（Bloch 向量 / Schmidt 谱），不构造全态矢量；
+<strong>能画的视图</strong>——全态热图/直方图需要显式 2^n 态矢量，建议 n ≤ 10。
+大系统请用 <code>BlochVectorsTrack</code> 桥梁（MPS 约化量直喂渲染层）或渲染
+约化密度矩阵、局域观测量。
 </details>
 
 ## 项目结构
@@ -452,6 +463,32 @@ python scripts/gen_font_atlas.py   # 重新烘焙字体图集
 - [ ] 更多国内模拟器适配（QPilotMachine / QCloud 等）
 - [x] Shor 周期查找（N=15，受控模乘 SWAP 分解 + 连分数因子）与 HHL 线性求解（对角 A 精确 QPE + 条件旋转），双引擎交叉验证 1e-10（examples/shor_demo.py、examples/hhl_demo.py）
 - [x] 矢量输出（SVG/PDF）：`render_svg(scene, out="fig.svg")` 出版级矢量图（布洛赫球扁平示意 + 直方图/纠缠图/Hinton/热图网格真矢量），PDF 经 cairosvg；LaTeX 标注：`TextOverlay(latex=True, text="$\psi...$")` mathtext 排版（GL 纹理/CPU 合成/SVG 嵌入三路径），CJK 字体回退链
+
+## 0.8.0 API 变更说明
+
+0.8.0 引入统一渲染配置，**现有入口签名有变化**（参数默认值从具体值改为 `None`，
+行为不变——缺省时由内置默认补齐）：
+
+- **`RenderConfig`**（新）：跨入口统一配置对象。所有渲染入口
+  （`render_bloch_video` / `render_heatmap_video` / `render_frame` / `render` /
+  `render_svg` / `export_html` / `show`）新增 `config=` 可选参数，
+  优先级：显式平铺参数 > config 同名字段 > 入口内置默认。
+- **`show(mode=)`**（新）：`"auto"|"html"|"video"|"figure"` 显式输出方式，
+  `mode != "auto"` 时优先于旧参数 `as_video`（保留兼容）。
+- **`Statevector` / `DensityMatrix`**（新字段）：`provenance`（默认 `"exact"`），
+  标注数据来源语义（`"mps_chi=N"` = MPS 截断产物）；`ProReport` 新增
+  `provenance` / `backend` / `encoder` 字段。
+- **降级可观测性**：GL→CPU 后端降级发出 `RuntimeWarning`；编码器实际名称
+  可经 `gpuqviz.encode.last_encoder_info()` 查询；HTML 产物 head 注入
+  `gpuqviz-render-info` meta。
+
+## 输入归一化（统一 IR）
+
+qiskit `QuantumCircuit`、pyqpanda `QProg`、numpy `list[Gate]` 三种输入在
+管线入口即归一化为**同一 Gate 中间表示**（`adapters.qiskit_to_gates`），
+后续演化/渲染只消费 Gate 语义——同一电路在不同引擎输入下可视化结果一致
+（由 tests/test_gates_matrix.py 的 12+ 电路 1e-10 保真度对拍锁定）。
+引擎仅承担"输入解析器"角色，而非执行器。
 
 ## License
 

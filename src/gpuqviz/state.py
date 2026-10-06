@@ -170,6 +170,7 @@ class State(ABC):
             "n_qubits": self.n_qubits,
             "purity": self.purity(),
             "entropy": self.entropy(),
+            "provenance": getattr(self, "provenance", "exact"),
         }
 
 
@@ -179,9 +180,14 @@ class State(ABC):
 
 @dataclass(frozen=True)
 class Statevector(State):
-    """纯态：1D 复数向量，‖ψ‖ 由输入保证（不隐式归一化）。"""
+    """纯态：1D 复数向量，‖ψ‖ 由输入保证（不隐式归一化）。
+
+    provenance（0.8.0 审计 #4）：数据来源语义。"exact" = 精确演化/精确约化；
+    "mps_chi=N" = MPS χ 截断产物（数值为近似，渲染层据此标注）。
+    """
 
     data: "np.ndarray" = field(repr=False)
+    provenance: str = field(default="exact", repr=False)
 
     def __post_init__(self):
         arr = _as_complex(self.data, "statevector")
@@ -249,9 +255,13 @@ class Statevector(State):
 
 @dataclass(frozen=True)
 class DensityMatrix(State):
-    """混合态：(2^n, 2^n) Hermit 半正定矩阵，迹由输入保证。"""
+    """混合态：(2^n, 2^n) Hermit 半正定矩阵，迹由输入保证。
+
+    provenance 语义同 Statevector（见其 docstring）。
+    """
 
     data: "np.ndarray" = field(repr=False)
+    provenance: str = field(default="exact", repr=False)
 
     def __post_init__(self):
         arr = _as_complex(self.data, "density matrix")

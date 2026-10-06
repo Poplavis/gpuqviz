@@ -1,9 +1,9 @@
 """gpuqviz: GPU-accelerated quantum state evolution visualization and video rendering."""
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
-from .api import (render, render_bloch_video, render_frame,  # noqa: E401
-                  render_heatmap_video, render_svg)
+from .api import (RenderConfig, render, render_bloch_video,  # noqa: E401
+                  render_frame, render_heatmap_video, render_svg)
 from .env import report_env  # noqa: E401
 from .export_html import export_html  # noqa: E401
 from .presets import (  # noqa: E401
@@ -35,7 +35,7 @@ def show(*args, **kwargs):
     return _show(*args, **kwargs)
 
 
-__all__ = ["__version__", "report_env", "render_bloch_video", "render_heatmap_video",
+__all__ = ["__version__", "RenderConfig", "report_env", "render_bloch_video", "render_heatmap_video",
            "render", "render_frame", "export_html", "show", "algorithms", "analysis",
            "Statevector", "DensityMatrix",
            "PRESETS", "RES_480P", "RES_720P", "RES_1080P", "RES_1440P",

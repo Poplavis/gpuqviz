@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 
 from .adapters import to_key_states, qiskit_to_gates
+from .api import RenderConfig, _apply_config
 from .evolve import bloch_vectors
 
 # 状态面板/热图复杂度上限（与 DESIGN.md 第 10 节一致）
@@ -179,14 +180,25 @@ def build_payload(states: list[np.ndarray], fps: float, duration: float,
     return payload
 
 
-def export_html(circuit=None, states=None, steps: int = 120, fps: float = 60.0,
-                duration: float | None = None, title: str = "量子态演化",
-                out: str | Path = "out/viewer.html", colormap: str = "viridis",
-                embed_three: bool = True, machine=None) -> Path:
+def export_html(circuit=None, states=None, steps: int | None = None,
+                fps: float | None = None,
+                duration: float | None = None, title: str | None = None,
+                out: str | Path | None = None, colormap: str | None = None,
+                embed_three: bool = True, machine=None,
+                config: "RenderConfig | None" = None) -> Path:
     """qiskit 电路或态矢量序列 → 交互式 3D 播放器 HTML（单文件）。
 
     embed_three=False 时用 CDN 引用（文件更小，但需要联网打开）。
     """
+    p = _apply_config(
+        config,
+        defaults={"steps": 120, "fps": 60.0, "title": "量子态演化",
+                  "out": "out/viewer.html", "colormap": "viridis"},
+        steps=steps, fps=fps, title=title, out=out, colormap=colormap,
+    )
+    steps, fps, title, out, colormap = (p.steps, p.fps, p.title, p.out,
+                                        p.colormap)
+
     if (circuit is None) == (states is None):
         raise ValueError("exactly one of `circuit` or `states` must be provided")
 
@@ -231,11 +243,21 @@ def export_html(circuit=None, states=None, steps: int = 120, fps: float = 60.0,
         three_block = ('document.write(\'<script src="https://cdn.jsdelivr.net/npm/'
                        'three@0.160.0/build/three.min.js"><\\/script>\');')
 
+    # 渲染元信息（0.8.0 审计 #3）：数据来源与环境随产物留存
+    from . import __version__
+    from .backends import render_info as _render_info
+
+    meta = {"version": __version__, **_render_info()}
+    meta_json = json.dumps(meta, ensure_ascii=False)
+
     html = (template
             .replace("__TITLE__", title)
             .replace("__THREE_JS__", three_block)
             .replace("__VIEWER_JS__", viewer_js)
-            .replace("__PAYLOAD__", payload_json))
+            .replace("__PAYLOAD__", payload_json)
+            .replace("</head>",
+                     '<meta name="gpuqviz-render-info" content=\''
+                     + meta_json + '\'>\n</head>'))
 
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)

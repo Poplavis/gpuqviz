@@ -93,7 +93,8 @@ def _build_html_string(payload: dict, title: str, embed_three: bool = True) -> s
 
 def show(circuit=None, states=None, scene=None, steps: int = 60,
          out: str | Path | None = None, as_video: bool = False,
-         height: int = 520, **kwargs) -> object | None:
+         height: int = 520, mode: str = "auto",
+         **kwargs) -> object | None:
     """在 Jupyter notebook 中内嵌交互式 3D 播放器。
 
     circuit / states / scene 三选一：
@@ -108,11 +109,25 @@ def show(circuit=None, states=None, scene=None, steps: int = 60,
 
     payload 超 8MB 时自动降级：只内嵌 Bloch 数据并警告（状态面板省略）。
 
-    as_video=True：先渲染 MP4 再用 IPython.display.Video 内嵌。
+    as_video=True：先渲染 MP4 再用 IPython.display.Video 内嵌（保留兼容；
+    等价 mode="video"）。
 
-    其余 kwargs 透传给 export_html / render_bloch_video（fps, duration, title,
-    colormap, style, codec, quality, backend 等）。
+    mode：显式输出方式（0.8.0，审计 #8），默认 "auto" 保持原有环境检测行为：
+      - "auto"：notebook → 内嵌 HTML 播放器（as_video=True 时 → 视频）；
+        非 notebook → 写 HTML 文件并打印路径
+      - "html"：同 auto 的 HTML 路径
+      - "video"：渲染 MP4 并内嵌（等同 as_video=True）
+      - "figure"：渲染静态 PNG 帧（render_frame），notebook 内嵌 / 返回 Path
+    mode != "auto" 时优先于 as_video。
+
+    其余 kwargs 透传给 export_html / render_bloch_video / render_frame
+    （fps, duration, title, colormap, style, codec, quality, backend, config 等）。
     """
+    if mode not in ("auto", "html", "video", "figure"):
+        raise ValueError(
+            f"mode must be 'auto'|'html'|'video'|'figure', got {mode!r}")
+    if mode == "auto" and as_video:
+        mode = "video"
     # ---- 解析输入 → key_states ----
     circuit_info = None
     if scene is not None:
@@ -149,9 +164,13 @@ def show(circuit=None, states=None, scene=None, steps: int = 60,
     else:
         raise ValueError("provide exactly one of circuit/states/scene")
 
-    # ---- as_video 路径：渲染 MP4 + IPython.display.Video ----
-    if as_video:
+    # ---- video 路径：渲染 MP4 + IPython.display.Video ----
+    if mode == "video":
         return _show_video(circuit, states, scene, steps, out, height, kwargs)
+
+    # ---- figure 路径：静态 PNG 帧 ----
+    if mode == "figure":
+        return _show_figure(circuit, states, scene, out, kwargs)
 
     # ---- HTML 内嵌路径 ----
     colormap = kwargs.get("colormap", "viridis")
@@ -367,6 +386,31 @@ def _write_html_file(payload: dict, title: str, out: str | Path | None,
     html_str = _build_html_string(payload, title, embed_three=embed_three)
     out.write_text(html_str, encoding="utf-8")
     print(f"viewer HTML written to {out} (open in browser)")
+    return out
+
+
+def _show_figure(circuit, states, scene, out, kwargs):
+    """mode="figure" 路径：render_frame 静态 PNG，notebook 内嵌 / 返回 Path。"""
+    if out is None:
+        out = "out/show_frame.png"
+    out = Path(out)
+
+    from .api import render_frame
+
+    frame_kwargs = dict(kwargs)
+    frame_kwargs.pop("states_dir", None)
+    render_frame(circuit=circuit, states=states, scene=scene, out=out,
+                 states_dir=kwargs.get("states_dir"), **frame_kwargs)
+
+    if _is_notebook():
+        try:
+            from IPython.display import Image, display
+
+            display(Image(filename=str(out)))
+            return out
+        except ImportError:
+            pass
+    print(f"frame PNG written to {out}")
     return out
 
 
