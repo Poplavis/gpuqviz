@@ -57,3 +57,8 @@ ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    # windows 托管 runner 的 WGL/locale 环境波动（wglCreateContextAttribsARB
+    # not found / charmap 编码）——测试逻辑与代码无关，主 test 矩阵仍覆盖
+    "hosted_runner_flaky: flaky on hosted Windows runners (WGL/locale), not logic",
+]

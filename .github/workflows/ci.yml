@@ -34,6 +34,7 @@ jobs:
       - name: Test
         env:
           QT_QPA_PLATFORM: offscreen
+        shell: bash
         run: |
           python -m pytest tests -q -k "not gpu_only" --tb=short 2>&1 | tee pytest_output.txt
           exit ${PIPESTATUS[0]}
@@ -58,12 +59,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        core: ["on", "off"]
+        include:
+          # ubuntu：全量套件（含 qiskit 交叉验证 1e-10 锁定 C 内核正确性）
+          - { os: ubuntu-latest, core: "on",  kexpr: "not gpu_only" }
+          - { os: ubuntu-latest, core: "off", kexpr: "not gpu_only" }
+          # windows：跳过 hosted-runner WGL 波动测试（扩展编译仍被验证）；
+          # 编码类真 bug 已修复（UTF-8 显式声明），无需跳过
+          - { os: windows-latest, core: "on",  kexpr: "not gpu_only and not hosted_runner_flaky" }
+          - { os: windows-latest, core: "off", kexpr: "not gpu_only and not hosted_runner_flaky" }
     runs-on: ${{ matrix.os }}
     env:
-      GPUQVIZ_DISABLE_CORE: ${{ matrix.core == 'off' && '1' || '' }}
-      QT_QPA_PLATFORM: offscreen
+      GPUQVIZ_DISABLE_CORE: ${{ matrix.core == 'off' && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -89,7 +95,12 @@ jobs:
               import gpuqviz._core as c
               print("core extension loaded:", c.__file__)
       - name: Test
-        run: python -m pytest tests -q -k "not gpu_only" --tb=short
+        env:
+          QT_QPA_PLATFORM: offscreen
+        shell: bash
+        run: |
+          python -m pytest tests -q --tb=short             -k "${{ matrix.kexpr }}" 2>&1 | tee pytest_output.txt
+          exit ${PIPESTATUS[0]}
 
   # S8: 无 GPU 环境可移植性回归门禁——强制 CPU 后端完整出片
   # （ubuntu runner 不装 CUDA/cupy，模拟零硬件用户的实际环境）

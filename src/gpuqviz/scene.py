@@ -222,11 +222,12 @@ class Scene(BaseModel):
     # -- 持久化 ------------------------------------------------------------
 
     def save_json(self, path: str | Path) -> None:
-        Path(path).write_text(self.model_dump_json(indent=2))
+        # 显式 UTF-8：windows 默认 locale（cp1252）无法编码中文标题
+        Path(path).write_text(self.model_dump_json(indent=2), encoding="utf-8")
 
     @classmethod
     def load_json(cls, path: str | Path) -> "Scene":
-        return cls.model_validate_json(Path(path).read_text())
+        return cls.model_validate_json(Path(path).read_text(encoding="utf-8"))
 
     # -- 布局 ---------------------------------------------------------------
 

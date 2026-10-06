@@ -76,7 +76,7 @@ class TextRenderer:
             bin_ref = assets / f"font_{name}_64.bin"
             json_ref = assets / f"font_{name}_64.json"
             try:
-                return bin_ref.read_bytes(), json.loads(json_ref.read_text())
+                return bin_ref.read_bytes(), json.loads(json_ref.read_text(encoding="utf-8"))
             except FileNotFoundError:
                 continue
         raise FileNotFoundError(

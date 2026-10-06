@@ -10,6 +10,7 @@ pytest.importorskip("av")
 from gpuqviz.pipeline import render_solid_gradient  # noqa: E402
 
 
+@pytest.mark.hosted_runner_flaky
 def test_minimum_pipeline(tmp_path: Path):
     out = tmp_path / "mini.mp4"
     render_solid_gradient(out=str(out), seconds=1.0, fps=30, width=320, height=240)

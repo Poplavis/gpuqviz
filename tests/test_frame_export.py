@@ -58,6 +58,7 @@ def test_frame_bw_style_white_bg():
 
 @pytest.mark.skipif(_IS_SOFTWARE_GL,
                     reason=f"软件光栅（{_GL_RENDERER}）AA 行为与硬件不同")
+@pytest.mark.hosted_runner_flaky
 def test_frame_scale_reduces_aliasing():
     """scale=2 的边缘锯齿显著低于 scale=1（边缘梯度能量对比，宽松断言）。"""
     states = _bell_states()

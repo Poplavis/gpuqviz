@@ -111,6 +111,7 @@ def test_noisy_report_shrinks_purity():
 # 导出冒烟
 # ---------------------------------------------------------------------------
 
+@pytest.mark.hosted_runner_flaky
 def test_export_video_smoke(tmp_path):
 
     viz = ProVisualizer(circuit=_bell_circuit())

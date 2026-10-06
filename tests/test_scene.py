@@ -74,7 +74,8 @@ def test_font_atlas_metadata():
     from importlib import resources
 
     meta = json.loads(
-        (resources.files("gpuqviz") / "assets" / "font_msyh_64.json").read_text()
+        (resources.files("gpuqviz") / "assets" / "font_msyh_64.json")
+        .read_text(encoding="utf-8")
     )
     assert meta["atlas_w"] > 0 and meta["atlas_h"] > 0
     for ch in ["量", "子", "贝", "尔", "A", "9"]:
