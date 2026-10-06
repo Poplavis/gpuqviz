@@ -74,16 +74,48 @@ def pauli_expectation(state, pauli_string: str) -> float:
     位串记法："IIXZ" 表示 Z⊗作用于 q0、X 作用于 q1、其余 I——
     即**左起字符对应最高位 qubit**（与位串显示约定一致，qiskit
     SparsePauliOp 相同记法）。
+
+    0.9.0 T1-1：不构造稠密 2^n×2^n Pauli 矩阵——
+    - 纯态：逐位 batched GEMM 作用单比特算符，O(n·2^n)；
+    - 混态：ρ 张量的行/列轴逐对收缩（合并轴累计在前的布局
+      [merged | rows | cols]，第 pos 步行轴 = pos、列轴 = n+pos），
+      总成本 O(4^n)，原实现 O(4^n) 矩阵构造 + O(8^n) 矩阵乘。
     """
     st = as_state(state)
-    if len(pauli_string) != st.n_qubits:
+    n = st.n_qubits
+    if len(pauli_string) != n:
         raise ValueError(f"pauli_string length {len(pauli_string)} != "
-                         f"n_qubits {st.n_qubits}")
-    P = _pauli_matrix(pauli_string)
+                         f"n_qubits {n}")
+    for ch in pauli_string:
+        if ch not in _PAULI_MAT:
+            raise ValueError(f"invalid Pauli character {ch!r} in {pauli_string!r} "
+                             "(allowed: I, X, Y, Z)")
+
     if isinstance(st, DensityMatrix):
-        return float(np.real(np.trace(np.asarray(st.data) @ P)))
-    psi = np.asarray(st.data)
-    return float(np.real(np.vdot(psi, P @ psi)))
+        # 布局不变式：T = [merged(pos 个) | 剩余行轴 | 剩余列轴]，
+        # 行块起点 = pos、列块起点 = n（列块起点恒为 n：pos + (n-pos)）
+        T = np.asarray(st.data).reshape((2,) * (2 * n))
+        for pos, ch in enumerate(pauli_string):
+            M = _PAULI_MAT[ch]
+            T = np.moveaxis(T, (pos, n), (0, 1))
+            last = pos == n - 1
+            res = np.einsum("ji,ijr->" if last else "ji,ijr->jr",
+                            M, T.reshape(2, 2, -1), optimize=True)
+            if last:
+                return float(np.real(res))
+            T = res.reshape((2,) * (2 * n - pos - 1))
+        raise AssertionError("unreachable")
+
+    psi = np.asarray(st.data).reshape(-1)
+    out = psi
+    for pos, ch in enumerate(pauli_string):
+        if ch == "I":
+            continue
+        q = n - 1 - pos
+        left = 1 << (n - 1 - q)
+        right = 1 << q
+        out = np.matmul(_PAULI_MAT[ch], out.reshape(left, 2, right)).reshape(-1)
+    return float(np.real(np.vdot(psi, out)))
 
 
 # --------------------------------------------------------------------------- #

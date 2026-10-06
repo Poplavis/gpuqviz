@@ -296,8 +296,14 @@ class DensityMatrix(State):
         return DensityMatrix(rho)
 
     def purity(self) -> float:
+        """Tr ρ²：Tr(ρ·ρ) 双张量全收缩 O(4^n)
+        （原 ρ@ρ 完整矩阵乘再取迹 O(8^n)，0.9.0 T1-2）。"""
         rho = np.asarray(self.data)
-        return float(np.real(np.trace(rho @ rho)))
+        n = int(round(np.log2(rho.shape[0])))
+        T = rho.reshape((2,) * (2 * n))  # 前 n 轴 = 行（MSB-first），后 n 轴 = 列
+        a = list(range(n)) + list(range(n, 2 * n))          # A 的 (行 i, 列 j)
+        b = list(range(n, 2 * n)) + list(range(n))          # B 的 (行 j, 列 i)
+        return float(np.real(np.einsum(T, a, T, b, optimize=True)))
 
     # -- 密度矩阵专属 -------------------------------------------------------- #
 

@@ -149,7 +149,9 @@ class EntanglementReport:
 def entanglement_summary(state) -> EntanglementReport:
     """全对互信息 + 每 qubit 熵 + negativity 一次算全。
 
-    复杂度 O(n²) 次 2-qubit partial trace（n ≤ 13 由 partial_trace 保证）。
+    0.9.0 T1-5：单 qubit 熵算一次全对复用；每对只做 1 次 2-qubit
+    partial trace + 2 次 eigvalsh（原经 mutual_information/negativity
+    各自重算 ρ_ij 与 S_A/S_B，每对 4 次 trace + 4 次 eigvalsh）。
     """
     st = as_state(state)
     n = st.n_qubits
@@ -158,7 +160,12 @@ def entanglement_summary(state) -> EntanglementReport:
     neg = np.zeros((n, n))
     for i in range(n):
         for j in range(i + 1, n):
-            mi[i, j] = mi[j, i] = mutual_information(st, i, j)
-            neg[i, j] = neg[j, i] = negativity(st, i, j)
+            rho_ij = _reduced_rho(st, sorted([i, j]))
+            s_ab = _entropy_of_rho(rho_ij)
+            mi[i, j] = mi[j, i] = single[i] + single[j] - s_ab
+            t = rho_ij.reshape(2, 2, 2, 2).transpose(0, 3, 2, 1).reshape(4, 4)
+            eig = np.linalg.eigvalsh((t + t.conj().T) / 2)
+            l1 = float(np.sum(np.abs(eig)))
+            neg[i, j] = neg[j, i] = max((l1 - 1.0) / 2.0, 0.0)
     return EntanglementReport(n_qubits=n, single_entropy=single,
                               mutual_info=mi, negativity=neg)

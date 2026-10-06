@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import numpy as np
+from functools import lru_cache
 
 try:  # cupy 可选
     import cupy as cp
@@ -60,6 +61,17 @@ def depolarizing(lam: float, n_qubits: int = 1) -> list[np.ndarray]:
             _SQ(lam / 4) * _Z,
         ]
     # 多 qubit：以 Pauli 基构造（Σ_{P≠I} (λ/(4^n−1)) PρP + (1−λ·(4^n−1)/(4^n−1))ρ）
+    return list(_depolarizing_kraus_cached(n_qubits, float(lam)))
+
+
+@lru_cache(maxsize=64)
+def _depolarizing_kraus_cached(n_qubits: int, lam: float) -> tuple:
+    """depolarizing Kraus 集构造缓存（0.9.0 T1-5）。
+
+    构造 O(16^n) 内存/时间（4^n 个 4^n 矩阵），同一 (n, λ) 反复演化时
+    缓存收益显著。返回 tuple 不可变；元素约定只读，调用方不得修改。
+    """
+    d = 1 << n_qubits
     paulis = [_I2, _X, _Y, _Z]
     ops = []
     import itertools
@@ -71,7 +83,7 @@ def depolarizing(lam: float, n_qubits: int = 1) -> list[np.ndarray]:
             m = np.kron(m, p)
         w = prob_i if all(p is _I2 for p in combo) else lam / (d * d)
         ops.append(_SQ(max(w, 0.0)) * m)
-    return ops
+    return tuple(ops)
 
 
 def amplitude_damping(gamma: float) -> list[np.ndarray]:
