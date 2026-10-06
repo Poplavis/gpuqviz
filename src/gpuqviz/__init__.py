@@ -1,6 +1,6 @@
 """gpuqviz: GPU-accelerated quantum state evolution visualization and video rendering."""
 
-__version__ = "0.8.0"
+__version__ = "0.9.1"
 
 from .api import (RenderConfig, render, render_bloch_video,  # noqa: E401
                   render_frame, render_heatmap_video, render_svg)
