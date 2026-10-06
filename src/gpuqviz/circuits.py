@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 import numpy as np
 
@@ -72,10 +73,17 @@ def _as_le(state: np.ndarray) -> np.ndarray:
 
 
 def _apply_1q(state: np.ndarray, matrix: np.ndarray, target: int) -> np.ndarray:
-    psi = np.moveaxis(_as_le(state), target, 0)
-    psi = np.einsum("ij,j...->i...", matrix, psi)
-    n = psi.ndim
-    return np.moveaxis(psi, 0, target).transpose(*reversed(range(n))).reshape(-1)
+    """单比特门：小端序平铺索引中 qubit q 的位权重是 2^q，恰为
+    reshape(2^{n-1-q}, 2, 2^q) 的中间轴步长——单次 einsum 一步到位，
+    无轴重排拷贝（0.9.0 T1-4）。"""
+    dim = state.shape[0]
+    n = int(round(np.log2(dim)))
+    left = 1 << (n - 1 - target)
+    right = 1 << target
+    psi = np.asarray(state).reshape(left, 2, right)
+    # 批量 GEMM：(2×2) @ (left, 2, right) 广播到每个低位块，单次拷贝
+    out = np.matmul(matrix, psi)
+    return out.reshape(-1)
 
 
 def _apply_matrix(state: np.ndarray, matrix: np.ndarray, qubits: list[int]) -> np.ndarray:
@@ -84,6 +92,9 @@ def _apply_matrix(state: np.ndarray, matrix: np.ndarray, qubits: list[int]) -> n
     qubits 采用 qiskit Operator 约定：qubits[0] 是矩阵的最低位（LSB）。
     受控门按 targets 在前（低位）、controls 在后（高位）拼入 qubits，
     配合 _controlled 构造的矩阵（base 作用于低位块、控制位全 1 时生效）。
+
+    0.9.0 T1-4：矩阵指数分解为 2^k 张量 + 整数字母 einsum 单遍收缩，
+    消除 moveaxis/transpose 的多次全态拷贝（原实现 3 次，现 1 次）。
     """
     k = len(qubits)
     dim = 1 << k
@@ -93,14 +104,58 @@ def _apply_matrix(state: np.ndarray, matrix: np.ndarray, qubits: list[int]) -> n
     if k == 1:
         return _apply_1q(state, matrix, qubits[0])
     n = int(round(np.log2(state.shape[0])))
-    psi = _as_le(state)  # 轴 i ↔ qubit i
-    # 逆序移动参与轴：展平后 qubits[0] 位于最低位
-    psi = np.moveaxis(psi, list(reversed(qubits)), list(range(k)))
-    rest = psi.shape[k:]
-    psi = matrix @ psi.reshape(dim, -1)
-    psi = psi.reshape((2,) * k + rest)
-    psi = np.moveaxis(psi, list(range(k)), list(reversed(qubits)))
-    return np.ascontiguousarray(psi.transpose(*reversed(range(n)))).reshape(-1)
+    if n + k > 52:
+        raise ValueError(f"too many qubits ({n}) + targets ({k}) for einsum letters")
+    m6 = matrix.reshape((2,) * k + (2,) * k)
+    # M6 轴序：前 k 轴 = 输出 MSB→LSB = qubits[k-1]→qubits[0]；后 k 轴 = 输入同序
+    m_subs = [n + qubits.index(qubits[k - 1 - i]) for i in range(k)]
+    m_subs += [qubits[k - 1 - i] for i in range(k)]
+    # psi 轴 p ↔ qubit n-1-p；输入字母 = qubit 编号本身，输出字母 = n + targets 序号
+    psi_subs = [n - 1 - p for p in range(n)]
+    out_subs = [n + qubits.index(n - 1 - p) if (n - 1 - p) in qubits
+                else (n - 1 - p) for p in range(n)]
+    psi = np.asarray(state).reshape((2,) * n)
+    out = np.einsum(m6, m_subs, psi, psi_subs, out_subs, optimize=True)
+    return out.reshape(-1)
+
+
+def _apply_controlled(state: np.ndarray, base: np.ndarray,
+                      targets: list[int], controls: list[int]) -> np.ndarray:
+    """受控门：控制位切片（零拷贝 strided 视图）只作用 control=1 半态。
+
+    替代稠密 _controlled 矩阵路径——不再构造 2^(nc+t) 矩阵（MCX 9 控制
+    时是 1024×1024 稠密块），且张量流量减半（只触碰 control=1 的振幅）。
+    base 约定同 _gate_matrix：targets[0] 是 LSB。
+    """
+    n = int(round(np.log2(state.shape[0])))
+    t = len(targets)
+    dim_t = 1 << t
+    base = np.asarray(base, dtype=np.complex128)
+    if base.shape != (dim_t, dim_t):
+        raise ValueError(f"base shape {base.shape} does not match {t} targets")
+    if set(targets) & set(controls):
+        raise ValueError("targets and controls must be disjoint")
+    psi_t = np.asarray(state).reshape((2,) * n)  # 轴 p ↔ qubit n-1-p
+    # 控制位固定为 1：切片视图，零拷贝
+    sel = tuple(1 if (n - 1 - p) in controls else slice(None) for p in range(n))
+    block = psi_t[sel]  # 轴序 = 非控制 qubit 降序
+    # 目标轴在 block 中的位置（tensordot 需 MSB-first：targets[k-1] 先收缩）
+    def _block_pos(q: int) -> int:
+        return sum(1 for c in range(n) if c not in controls and c > q)
+    tpos = [_block_pos(q) for q in reversed(targets)]  # MSB-first
+    base6 = base.reshape((2,) * t + (2,) * t)  # 列索引分解为 t 个轴（MSB-first）
+    out = np.tensordot(base6, block,
+                       axes=(list(range(t, 2 * t)), tpos))  # (2^t, rest...)
+    rest_dims = [block.shape[p] for p in range(block.ndim) if p not in tpos]
+    out = out.reshape((2,) * t + tuple(rest_dims))
+    # 前 t 轴 = 目标 MSB→LSB = targets[k-1]→targets[0]，moveaxis 回 block 轴序
+    dest = [_block_pos(q) for q in targets]  # targets[0]..targets[k-1] 的位置
+    src = list(range(t))  # out 前 t 轴顺序 = targets[k-1]..targets[0]
+    out = np.moveaxis(out, src, list(reversed(dest)))
+    # 纯函数契约：apply_gate 不得修改输入（快照持有各关键帧数组）
+    new_state = state.copy()
+    new_state.reshape((2,) * n)[sel] = out
+    return new_state
 
 
 def _controlled(base: np.ndarray, n_ctrl: int) -> np.ndarray:
@@ -144,6 +199,28 @@ def _gate_matrix(gate: Gate) -> tuple[np.ndarray, list[int]]:
         m[-1, -1] = np.exp(1j * params[0])
         return m, tgt + ctrl
 
+    base, tgt = _base_matrix_of(gate)
+    if ctrl:
+        return _controlled(base, len(ctrl)), tgt + ctrl
+    return base, tgt
+
+
+def _base_matrix_of(gate: Gate) -> tuple[np.ndarray, list[int]]:
+    """受控门 → (base 酉矩阵, targets)：剥掉 MC/C 前缀解析 base 门，
+    不包装控制位（控制位切片路径用，0.9.0 T1-3）。"""
+    name = gate.name.upper()
+    tgt, ctrl, params = list(gate.targets), list(gate.controls), list(gate.params)
+
+    # 相位族：CP = 受控 P——base 是 targets 上的对角相位门，
+    # phase 仅在全部 targets+controls 为 1 时生效（与稠密实现语义一致）
+    if name in ("P", "PHASE", "U1"):
+        return np.diag([1.0, np.exp(1j * params[0])]).astype(np.complex128), tgt
+    if name in ("CP", "MCP", "MCPHASE"):
+        k = max(1, len(tgt))
+        m = np.eye(1 << k, dtype=np.complex128)
+        m[-1, -1] = np.exp(1j * params[0])
+        return m, tgt
+
     # 控制位归一：名字剥掉 MC / C 前缀得到 base 门
     # （无 "MCR" 前缀：MCRY = MC + RY，先剥 3 字符会把 base 错剥成 Y）
     if name == "CNOT":
@@ -160,21 +237,34 @@ def _gate_matrix(gate: Gate) -> tuple[np.ndarray, list[int]]:
     if base_name in _MATRICES:
         base = _MATRICES[base_name]
     elif base_name in ("RX", "RY", "RZ"):
-        base = _rotation(base_name, params[0])
+        base = _rotation_cached(base_name, params[0])
     elif base_name in ("U", "U3"):
-        base = _u3(params[0], params[1], params[2])
+        base = _u3_cached("U3", params[0], params[1], params[2])
     elif base_name == "U2":
-        base = _u3(np.pi / 2, params[0], params[1])
+        base = _u3_cached("U2", np.pi / 2, params[0], params[1])
     else:
         raise ValueError(f"unsupported gate: {gate.name}")
-
-    if n_ctrl:
-        return _controlled(base, n_ctrl), tgt + ctrl
     return base, tgt
 
 
+@lru_cache(maxsize=512)
+def _rotation_cached(name: str, theta: float) -> np.ndarray:
+    return _rotation(name, theta)
+
+
+@lru_cache(maxsize=512)
+def _u3_cached(kind: str, theta: float, phi: float, lam: float) -> np.ndarray:
+    if kind == "U2":
+        return _u3(np.pi / 2, theta, phi)
+    return _u3(theta, phi, lam)
+
+
 def apply_gate(state: np.ndarray, gate: Gate) -> np.ndarray:
-    """单个 Gate 作用到态矢量（纯函数，返回新数组）。"""
+    """单个 Gate 作用到态矢量（纯函数，返回新数组）。
+
+    0.9.0 T1-3：带 controls 且未携带显式矩阵的门走控制位切片路径
+    （_apply_controlled），不再构造稠密 2^(nc+t) 受控矩阵。
+    """
     name = gate.name.upper()
     if name == "BARRIER":
         return state
@@ -182,6 +272,9 @@ def apply_gate(state: np.ndarray, gate: Gate) -> np.ndarray:
         return _apply_matrix(state, _SWAP, list(gate.targets))
     if name == "ISWAP":
         return _apply_matrix(state, _ISWAP, list(gate.targets))
+    if gate.controls and gate.matrix is None:
+        base, targets = _base_matrix_of(gate)
+        return _apply_controlled(state, base, targets, list(gate.controls))
     matrix, qubits = _gate_matrix(gate)
     return _apply_matrix(state, matrix, qubits)
 
